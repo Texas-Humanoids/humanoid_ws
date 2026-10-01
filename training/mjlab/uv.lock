@@ -3075,7 +3075,7 @@ wheels = [
 ]
 
 [[package]]
-name = "th-training"
+name = "th-mjlab"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

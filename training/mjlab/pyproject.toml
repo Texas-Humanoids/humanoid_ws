@@ -1,7 +1,7 @@
 [project]
-name = "th-training"
+name = "th-mjlab"
 version = "0.1.0"
-description = "mjlab environments and training scripts for the Texas Humanoids robot"
+description = "mjlab environments and training scripts for Texas Humanoids robots"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
