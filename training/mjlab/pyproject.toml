@@ -3,7 +3,7 @@ name = "th-mjlab"
 version = "0.1.0"
 description = "mjlab environments and training scripts for Texas Humanoids robots"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     # Pinned so mjlab API changes don't silently break our tasks.
     # Bump on purpose, in its own PR.
