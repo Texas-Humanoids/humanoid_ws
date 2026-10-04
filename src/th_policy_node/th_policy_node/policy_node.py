@@ -132,6 +132,11 @@ class PolicyNode(Node):
                 f"Expected one ONNX model input, found {len(model_inputs)}."
             )
         self._model_input = model_inputs[0]
+        if self._model_input.type != "tensor(float)":
+            raise ValueError("The ONNX observation input must use float32 values.")
+        model_outputs = self._session.get_outputs()
+        if len(model_outputs) != 1 or model_outputs[0].type != "tensor(float)":
+            raise ValueError("Expected one float32 ONNX action output.")
         self._input_shape = self._make_input_shape(self._model_input.shape)
 
         self._publisher = self.create_publisher(
@@ -205,9 +210,13 @@ class PolicyNode(Node):
             return
 
         clipped_actions = np.clip(actions, self._action_min, self._action_max)
-        target_positions = (
-            clipped_actions * self._action_scale + self._default_positions
-        )
+        with np.errstate(over="ignore", invalid="ignore"):
+            target_positions = (
+                clipped_actions * self._action_scale + self._default_positions
+            )
+        if not np.isfinite(target_positions).all():
+            self.get_logger().error("Computed non-finite joint targets; not publishing.")
+            return
 
         targets = JointState()
         targets.header.stamp = self.get_clock().now().to_msg()
