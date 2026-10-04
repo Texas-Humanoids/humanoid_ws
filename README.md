@@ -4,8 +4,7 @@ Software for the Texas Humanoids robot, a humanoid based on the
 [Berkeley Humanoid Lite](https://github.com/HybridRobotics/berkeley-humanoid-lite),
 built on **ROS 2 Jazzy**.
 
-This repo is a ROS 2 workspace. Right now it only has the folder layout;
-code will be added in later pull requests.
+This repo is a ROS 2 workspace. See each package's README for its status and usage.
 
 ## Repository layout
 
@@ -15,6 +14,7 @@ humanoid_ws/
 │   ├── th_description/     robot model (URDF, meshes)
 │   ├── th_bringup/         launch files and config that start the robot
 │   ├── robstride_driver/   talks to the RobStride motors over CAN
+│   ├── robstride_motor/    single-motor ROS 2 simulation scaffold
 │   ├── th_hardware/        connects ROS controllers to the motors
 │   ├── th_controllers/     custom controllers (RL walking policy)
 │   ├── th_sensors/         IMU, camera, and other sensor drivers
@@ -30,41 +30,36 @@ apart from third-party ones.
 
 Each folder has a README describing what will go in it.
 
-## Docker Setup
+## Setup
 
-There are two Dockerfiles in this repo. One is for CPU only, and the other is for GPU. The GPU one is recommended if you have an NVIDIA GPU, and it will allow you to run Isaac ROS perception nodes. The CPU one is for people without an NVIDIA GPU. You should perform as much development as possible on the CPU image, and only use the GPU image when you need to run Isaac ROS nodes.
+Everything runs inside a Docker container that has ROS 2 and all the dependencies installed. The steps are the same on Windows, macOS, and Linux.
 
-Make sure to develop everything inside the Docker container, as it will have all the dependencies installed. You can use VSCode Dev Containers to enter the container, which is the recommended way to work with this repo.
+1. Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) and make sure it's running. On Linux you can use [Docker Engine](https://docs.docker.com/engine/install/) instead.
+2. Install [VS Code](https://code.visualstudio.com/) and its [Dev Containers](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) extension.
+3. Clone this repo and open the folder in VS Code.
+4. Run **Dev Containers: Reopen in Container** from the Command Palette (Ctrl/Cmd+Shift+P) and pick **humanoid_ws (CPU)**.
 
-Run the following commands to build the Docker image and start a container:
+The first time, VS Code builds the image and then the workspace, which takes a few minutes. After that:
 
-```bash
-# Build the Docker image (choose either CPU or GPU)
-# CPU:
-docker compose --profile cpu build  
-# GPU:
-docker compose --profile gpu build
-```
-You can then enter the container with VSCode Dev Containers, which is the recommended way to work with this repo.
+- **Ctrl/Cmd+Shift+B** builds the workspace.
+- **Terminal > Run Task...** lists everything else, including running and testing each package.
+- New terminals already have ROS and the workspace sourced.
 
-You can also enter the container from the command line with:
+Use **humanoid_ws (GPU, Isaac ROS)** only if you have an NVIDIA GPU (Linux or Windows) and need Isaac ROS perception nodes.
 
-```bash
-# Start a container (choose either CPU or GPU, this should only be done if you are not using VSCode Dev Containers)
-# CPU:
-docker compose --profile cpu up -d
-# GPU:
-docker compose --profile gpu up -d
-```
+On Windows, clone the repo from a WSL terminal (into your Linux home folder) instead of onto `C:`. Builds are much faster there.
+
+### Without VS Code
+
+The same commands work in any terminal, from the repository root:
 
 ```bash
-docker compose exec cpu bash              # open a shell inside it 
-docker compose --profile cpu down         # stop it when done
+docker compose --profile cpu up -d --build   # build the image if needed and start the container
+docker compose exec cpu bash                 # open a shell inside it (repeat for more shells)
+colcon build                                 # inside the container
+docker compose --profile cpu down            # on the host, when you're done
 ```
 
-Once inside the container, you can build the workspace with:
+Replace `cpu` with `gpu` for the GPU image. On Linux, if your user ID isn't 1000 (check with `id -u`), use VS Code instead: it matches the container user to yours, which this path doesn't.
 
-```bash
-source /opt/ros/jazzy/setup.bash
-colcon build --symlink-install
-```
+To run and test the single-motor simulator, see [the robstride_motor README](src/robstride_motor/README.md).

@@ -1,2 +1,6 @@
+# Check out text files with LF line endings on every OS. The repo is mounted
+# into a Linux container, where CRLF breaks shell scripts and Dockerfiles.
+* text=auto eol=lf
+
 # Collapse lockfiles in GitHub diffs
 training/uv.lock linguist-generated=true

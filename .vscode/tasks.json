@@ -1,0 +1,48 @@
+{
+  // Run these inside the dev container: Terminal > Run Task...
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Build workspace",
+      "type": "shell",
+      "command": "colcon build",
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": "$gcc"
+    },
+    {
+      "label": "Test workspace",
+      "type": "shell",
+      "command": "colcon test && colcon test-result --verbose",
+      "group": { "kind": "test", "isDefault": true },
+      "dependsOn": "Build workspace",
+      "problemMatcher": []
+    },
+    {
+      "label": "robstride_motor: run simulator",
+      "type": "shell",
+      "command": "ros2 run robstride_motor robstride_motor_node",
+      "dependsOn": "Build workspace",
+      "problemMatcher": []
+    },
+    {
+      "label": "robstride_motor: send target",
+      "type": "shell",
+      "command": "ros2 topic pub --once /motor/target_position std_msgs/msg/Float64 '{data: ${input:motorTarget}}'",
+      "problemMatcher": []
+    },
+    {
+      "label": "robstride_motor: watch feedback",
+      "type": "shell",
+      "command": "ros2 topic echo /motor/simulated_position",
+      "problemMatcher": []
+    }
+  ],
+  "inputs": [
+    {
+      "id": "motorTarget",
+      "type": "promptString",
+      "description": "Target position in radians",
+      "default": "1.0"
+    }
+  ]
+}
