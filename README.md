@@ -45,14 +45,17 @@ docker compose --profile cpu build
 # GPU:
 docker compose --profile gpu build
 ```
-You can then enter the container with VSCode Dev Containers, which is the recommended way to work with this repo.
+You can then enter the container with VSCode Dev Containers, which is the recommended way to work with this repo. 
+(We recommend to use command line instead of VSCode Dev Containers)
 
 You can also enter the container from the command line with:
 
 ```bash
 # Start a container (choose either CPU or GPU, this should only be done if you are not using VSCode Dev Containers)
 # CPU:
-docker compose --profile cpu up -d
+
+sudo docker --context default compose --profile cpu up -d
+
 # GPU:
 docker compose --profile gpu up -d
 ```
