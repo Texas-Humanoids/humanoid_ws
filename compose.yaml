@@ -6,10 +6,6 @@ services:
       dockerfile: Dockerfile.cpu
     image: humanoid-ros:cpu
     network_mode: host
-    user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
-    environment:
-      # The container user has no home directory, so ROS cannot use ~/.ros/log.
-      - ROS_LOG_DIR=/tmp/ros-logs
     stdin_open: true
     tty: true
     command: sleep infinity
@@ -23,12 +19,8 @@ services:
       dockerfile: Dockerfile.gpu
     image: humanoid-ros:gpu
     network_mode: host
-    user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
     devices:
       - nvidia.com/gpu=all
-    environment:
-      # The container user has no home directory, so ROS cannot use ~/.ros/log.
-      - ROS_LOG_DIR=/tmp/ros-logs
     stdin_open: true
     tty: true
     command: sleep infinity

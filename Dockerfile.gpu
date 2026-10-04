@@ -14,8 +14,28 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && echo "deb [signed-by=/usr/share/keyrings/nvidia-isaac-ros.gpg] https://isaac.download.nvidia.com/isaac-ros/release-4.4 noble main" \
        > /etc/apt/sources.list.d/nvidia-isaac-ros.list \
     && apt-get update && apt-get install -y --no-install-recommends \
-       build-essential git ros-jazzy-ros-base python3-colcon-common-extensions python3-rosdep \
+       build-essential git sudo ros-jazzy-ros-base python3-colcon-common-extensions python3-rosdep \
     && rm -rf /var/lib/apt/lists/*
 
+# Developer setup shared with Dockerfile.cpu: keep the two in sync.
+# Work as the image's built-in `ubuntu` user (UID 1000) so ROS has a home
+# directory for its logs. Dev Containers remaps the UID to match yours on Linux.
+RUN echo 'ubuntu ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/ubuntu \
+    # Source ROS and the workspace in every shell: interactive shells through
+    # bash.bashrc, non-interactive ones (VS Code tasks, `bash -c`) through BASH_ENV.
+    && printf '%s\n' \
+       'source /opt/ros/jazzy/setup.bash' \
+       'if [ -f /ws/install/setup.bash ]; then source /ws/install/setup.bash; fi' \
+       > /etc/ros_env.sh \
+    && echo 'source /etc/ros_env.sh' >> /etc/bash.bashrc \
+    # Make a plain `colcon build` use --symlink-install.
+    && mkdir -p /home/ubuntu/.colcon \
+    && printf 'build:\n  symlink-install: true\n' > /home/ubuntu/.colcon/defaults.yaml \
+    # Skip Ubuntu's "To run a command as administrator" banner.
+    && touch /home/ubuntu/.sudo_as_admin_successful \
+    && chown -R ubuntu:ubuntu /home/ubuntu
+ENV BASH_ENV=/etc/ros_env.sh
+
+USER ubuntu
 WORKDIR /ws
 CMD ["bash"]

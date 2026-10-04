@@ -6,5 +6,10 @@
     "cpu"
   ],
   "workspaceFolder": "/ws",
-  "shutdownAction": "stopCompose"
+  "shutdownAction": "stopCompose",
+  "postCreateCommand": [
+    "bash",
+    "-c",
+    "colcon build"
+  ]
 }

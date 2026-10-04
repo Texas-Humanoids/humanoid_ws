@@ -32,54 +32,38 @@ Each folder has a README describing what will go in it.
 
 ## Docker Setup
 
-There are two Dockerfiles in this repo. One is for CPU only, and the other is for GPU. The GPU one is recommended if you have an NVIDIA GPU, and it will allow you to run Isaac ROS perception nodes. The CPU one is for people without an NVIDIA GPU. You should perform as much development as possible on the CPU image, and only use the GPU image when you need to run Isaac ROS nodes.
+Develop everything inside the Docker container, which has all the dependencies installed. There are two images: CPU and GPU. Use the CPU one for almost everything. Use the GPU one only if you have an NVIDIA GPU and need to run Isaac ROS perception nodes.
 
-Make sure to develop everything inside the Docker container, as it will have all the dependencies installed. You can use VSCode Dev Containers to enter the container, which is the recommended way to work with this repo.
+Docker must be running first. On macOS with Colima, run `colima start`.
 
-Run the Docker commands below from the repository root (`humanoid_ws`). Docker must be running first. On macOS, if you use Colima, start it with `colima start`.
+### VS Code (recommended)
 
-Before creating the container, match its user to your host user so it can write build files. This is especially relevant on macOS, where the default container UID of 1000 usually differs from your own:
+1. Open this folder in VS Code and install the recommended **Dev Containers** extension when prompted.
+2. Run **Dev Containers: Reopen in Container** from the Command Palette and pick **Isaac ROS (CPU)**.
 
-```bash
-export LOCAL_UID=$(id -u) LOCAL_GID=$(id -g)
-```
+The first time, VS Code builds the image and then the workspace. Once it's done, you're ready:
 
-Run the following commands to build the Docker image and start a container:
+- **Cmd/Ctrl+Shift+B** builds the workspace.
+- **Terminal > Run Task...** lists everything else, including running and testing each package.
+- New terminals already have ROS and the workspace sourced.
 
-```bash
-# Build the Docker image (choose either CPU or GPU)
-# CPU:
-docker compose --profile cpu build  
-# GPU:
-docker compose --profile gpu build
-```
-You can then enter the container with VSCode Dev Containers, which is the recommended way to work with this repo.
+### Command line
 
-You can also enter the container from the command line with:
+From the repository root (replace `cpu` with `gpu` for the GPU image):
 
 ```bash
-# Start a container (choose either CPU or GPU, this should only be done if you are not using VSCode Dev Containers)
-# CPU:
-docker compose --profile cpu up -d
-# GPU:
-docker compose --profile gpu up -d
+docker compose --profile cpu up -d --build   # build the image if needed and start the container
+docker compose exec cpu bash                 # open a shell inside it (repeat for more shells)
 ```
+
+Inside the container:
 
 ```bash
-docker compose exec cpu bash              # open a shell inside it 
-docker compose --profile cpu down         # stop it when done
+colcon build
 ```
 
-Once inside the container, you can build the workspace with:
+Shells you open after that have the workspace sourced. In a shell that was already open, run `source install/setup.bash` once.
 
-```bash
-source /opt/ros/jazzy/setup.bash
-colcon build --symlink-install
-source install/setup.bash
-```
+When you're done, type `exit` and stop the container with `docker compose --profile cpu down`. Run `colima stop` if you also want to shut down Colima.
 
-The last command makes the built packages available to `ros2 run`. In each new container shell, source both `/opt/ros/jazzy/setup.bash` and `/ws/install/setup.bash` before running ROS commands.
-
-To run and test the single-motor simulator, follow [the robstride_motor README](src/robstride_motor/README.md).
-
-After leaving the container shells with `exit`, stop the container with `docker compose --profile cpu down`. If you started Colima for this session, you can also stop its Linux VM with `colima stop`.
+To run and test the single-motor simulator, see [the robstride_motor README](src/robstride_motor/README.md).

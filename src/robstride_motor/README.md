@@ -1,77 +1,44 @@
 # robstride_motor
 
-A ROS 2 single-motor simulation scaffold. It accepts an absolute target angle in radians and publishes a simulated angle at approximately 20 Hz. It does not communicate over CAN or control a physical motor, and has no graphical interface.
+A ROS 2 single-motor simulation scaffold. It accepts an absolute target angle in radians on `/motor/target_position` and publishes the simulated angle on `/motor/simulated_position` at about 20 Hz. It does not talk over CAN or control a physical motor.
 
-## Build and start
+First, get into the dev container as described in the [root README](../../README.md#docker-setup).
 
-Use the CPU Docker workflow in [the root README](../../README.md). Docker must be running first (`colima start` if you use Colima on macOS). Run these commands from the repository root on your host:
+## VS Code
+
+From **Terminal > Run Task...**:
+
+1. **robstride_motor: run simulator** builds the workspace and starts the node. It prints `Simulation only: no physical motor is connected.`
+2. **robstride_motor: watch feedback** streams the simulated position.
+3. **robstride_motor: send target** asks for a target in radians (default `1.0`). The feedback moves toward it.
+
+To stop a task, click in its terminal and press Ctrl+C. **Test workspace** runs the checks.
+
+## Command line
+
+In one container shell, after `colcon build`:
 
 ```bash
-export LOCAL_UID=$(id -u) LOCAL_GID=$(id -g)
-docker compose --profile cpu build
-docker compose --profile cpu up -d
-docker compose exec cpu bash
-```
-
-In the container shell:
-
-```bash
-source /opt/ros/jazzy/setup.bash
-colcon build --symlink-install
-source install/setup.bash
 ros2 run robstride_motor robstride_motor_node
 ```
 
-Leave this terminal running. The node starts at zero and prints `Simulation only: no physical motor is connected.`
-
-## Send a command and watch feedback
-
-Open a second host terminal in the repository root and enter the same container:
+In a second shell (`docker compose exec cpu bash`):
 
 ```bash
-docker compose exec cpu bash
-```
-
-In this second container shell:
-
-```bash
-source /opt/ros/jazzy/setup.bash
-source /ws/install/setup.bash
-
 ros2 topic pub --once /motor/target_position std_msgs/msg/Float64 '{data: 1.0}'
 ros2 topic echo /motor/simulated_position
 ```
 
-The first terminal logs the target. Feedback approaches `1.0` radians, then keeps publishing that value. Moving from zero to one radian takes approximately 2.5 seconds: the simulation moves at most 0.02 radians every 50 milliseconds.
-
-Press Ctrl+C in the second terminal to stop the feedback display. The simulator in the first terminal keeps running. Send another target and watch again:
+To run the checks:
 
 ```bash
-ros2 topic pub --once /motor/target_position std_msgs/msg/Float64 '{data: -0.5}'
-ros2 topic echo /motor/simulated_position
+colcon test --packages-select robstride_motor && colcon test-result --verbose
 ```
 
-Targets are absolute positions: sending `1.0` twice does not add another radian. A new target replaces the old one. NaN and infinity are rejected.
+## What to expect
 
-## Checks
-
-In a container shell with ROS sourced:
-
-```bash
-colcon test --packages-select robstride_motor
-colcon test-result --verbose
-```
-
-The configured checks cover linting, not simulation behavior.
-
-## Stop
-
-Press Ctrl+C in the first terminal to stop the simulator. It should print `Simulation stopped. No hardware stop command was sent.` Press Ctrl+C in the second terminal if the feedback display is running, then type `exit` in both container shells.
-
-On the host, from the repository root:
-
-```bash
-docker compose --profile cpu down
-```
-
-If you started Colima for this session, also run `colima stop` to shut down its Linux VM.
+- The feedback starts at `0.0`, moves toward the target, and then holds there. Going from 0 to 1 radian takes about 2.5 seconds, because the position moves at most 0.02 radians every 50 milliseconds.
+- Targets are absolute, so sending `1.0` twice does not add another radian. A new target replaces the old one.
+- NaN and infinity are ignored with a warning.
+- Ctrl+C on the simulator prints `Simulation stopped. No hardware stop command was sent.`
+- The checks are lint only and don't test the simulation's behavior.
