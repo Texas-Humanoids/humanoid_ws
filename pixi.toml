@@ -1,0 +1,59 @@
+[workspace]
+name = "humanoid_ws"
+channels = ["robostack-jazzy", "conda-forge"]
+platforms = ["osx-arm64", "linux-64", "linux-aarch64", "win-64"]
+
+[dependencies]
+ros-jazzy-ros-base = "*"
+colcon-common-extensions = "*"
+# C++ toolchain. On Windows this uses Visual Studio Build Tools, installed separately.
+compilers = "*"
+cmake = "<4"
+ninja = "*"
+pkg-config = "*"
+# `colcon test`: linters for C++ packages, pytest for Python packages.
+ros-jazzy-ament-lint-auto = "*"
+ros-jazzy-ament-lint-common = "*"
+pytest = "<9"  # launch_testing in Jazzy uses hooks removed in pytest 9
+# Hardware testing: webcams through OpenCV (cam2image/showimage) on every OS.
+ros-jazzy-image-tools = "*"
+
+# RealSense: the ROS driver is only packaged for Linux. Windows gets Intel's
+# library and `realsense-viewer` for checking cameras. macOS isn't supported.
+[target.linux-64.dependencies]
+ros-jazzy-realsense2-camera = "*"
+
+[target.linux-aarch64.dependencies]
+ros-jazzy-realsense2-camera = "*"
+
+[target.win-64.dependencies]
+librealsense = "*"
+
+[activation.env]
+# Keep ROS traffic on this computer, so laptops on the same Wi-Fi don't see
+# each other's nodes and motors.
+ROS_AUTOMATIC_DISCOVERY_RANGE = "LOCALHOST"
+
+[target.osx-arm64.activation.env]
+# Drop libraries a program doesn't use. ROS links C++ nodes against message
+# packages' Python bindings, and macOS refuses to start a program whose
+# libraries reference Python symbols that aren't loaded.
+LDFLAGS = "-Wl,-dead_strip_dylibs"
+
+[activation]
+scripts = ["tools/pixi/activate.sh"]
+
+[target.win-64.activation]
+scripts = ["tools/pixi/activate.bat"]
+
+[tasks]
+build = "colcon build --symlink-install --cmake-args -G Ninja"
+test = { cmd = "colcon test && colcon test-result --verbose", depends-on = ["build"] }
+
+# Webcam: publish the default camera on /image, and view it in a window.
+webcam = "ros2 run image_tools cam2image"
+webcam-view = "ros2 run image_tools showimage"
+
+# Symlinks on Windows need Developer Mode, so copy files instead.
+[target.win-64.tasks]
+build = "colcon build --cmake-args -G Ninja"

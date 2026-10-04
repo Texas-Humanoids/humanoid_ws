@@ -1,2 +1,8 @@
 # Collapse lockfiles in GitHub diffs
 training/uv.lock linguist-generated=true
+
+# pixi lockfile: regenerate with `pixi install` instead of merging by hand
+pixi.lock merge=binary linguist-language=YAML linguist-generated=true
+
+# Windows batch files need CRLF line endings
+*.bat text eol=crlf

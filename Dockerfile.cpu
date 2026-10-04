@@ -1,4 +1,0 @@
-FROM ros:jazzy-ros-base
-
-WORKDIR /ws
-CMD ["bash"]
