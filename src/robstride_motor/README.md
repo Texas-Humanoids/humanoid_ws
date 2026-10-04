@@ -2,7 +2,7 @@
 
 A ROS 2 single-motor simulation scaffold. It accepts an absolute target angle in radians on `/motor/target_position` and publishes the simulated angle on `/motor/simulated_position` at about 20 Hz. It does not talk over CAN or control a physical motor.
 
-First, get into the dev container as described in the [root README](../../README.md#docker-setup).
+First, get into the dev container as described in the [root README](../../README.md#setup).
 
 ## VS Code
 

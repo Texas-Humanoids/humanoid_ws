@@ -1,5 +1,5 @@
 {
-  "name": "Isaac ROS (CPU)",
+  "name": "humanoid_ws (CPU)",
   "dockerComposeFile": "../../compose.yaml",
   "service": "cpu",
   "runServices": [

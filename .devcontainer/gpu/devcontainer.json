@@ -1,5 +1,5 @@
 {
-  "name": "Isaac ROS (GPU)",
+  "name": "humanoid_ws (GPU, Isaac ROS)",
   "dockerComposeFile": "../../compose.yaml",
   "service": "gpu",
   "runServices": [

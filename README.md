@@ -30,40 +30,36 @@ apart from third-party ones.
 
 Each folder has a README describing what will go in it.
 
-## Docker Setup
+## Setup
 
-Develop everything inside the Docker container, which has all the dependencies installed. There are two images: CPU and GPU. Use the CPU one for almost everything. Use the GPU one only if you have an NVIDIA GPU and need to run Isaac ROS perception nodes.
+Everything runs inside a Docker container that has ROS 2 and all the dependencies installed. The steps are the same on Windows, macOS, and Linux.
 
-Docker must be running first. On macOS with Colima, run `colima start`.
+1. Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) and make sure it's running. On Linux you can use [Docker Engine](https://docs.docker.com/engine/install/) instead.
+2. Install [VS Code](https://code.visualstudio.com/) and its [Dev Containers](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) extension.
+3. Clone this repo and open the folder in VS Code.
+4. Run **Dev Containers: Reopen in Container** from the Command Palette (Ctrl/Cmd+Shift+P) and pick **humanoid_ws (CPU)**.
 
-### VS Code (recommended)
+The first time, VS Code builds the image and then the workspace, which takes a few minutes. After that:
 
-1. Open this folder in VS Code and install the recommended **Dev Containers** extension when prompted.
-2. Run **Dev Containers: Reopen in Container** from the Command Palette and pick **Isaac ROS (CPU)**.
-
-The first time, VS Code builds the image and then the workspace. Once it's done, you're ready:
-
-- **Cmd/Ctrl+Shift+B** builds the workspace.
+- **Ctrl/Cmd+Shift+B** builds the workspace.
 - **Terminal > Run Task...** lists everything else, including running and testing each package.
 - New terminals already have ROS and the workspace sourced.
 
-### Command line
+Use **humanoid_ws (GPU, Isaac ROS)** only if you have an NVIDIA GPU (Linux or Windows) and need Isaac ROS perception nodes.
 
-From the repository root (replace `cpu` with `gpu` for the GPU image):
+On Windows, clone the repo from a WSL terminal (into your Linux home folder) instead of onto `C:`. Builds are much faster there.
+
+### Without VS Code
+
+The same commands work in any terminal, from the repository root:
 
 ```bash
 docker compose --profile cpu up -d --build   # build the image if needed and start the container
 docker compose exec cpu bash                 # open a shell inside it (repeat for more shells)
+colcon build                                 # inside the container
+docker compose --profile cpu down            # on the host, when you're done
 ```
 
-Inside the container:
-
-```bash
-colcon build
-```
-
-Shells you open after that have the workspace sourced. In a shell that was already open, run `source install/setup.bash` once.
-
-When you're done, type `exit` and stop the container with `docker compose --profile cpu down`. Run `colima stop` if you also want to shut down Colima.
+Replace `cpu` with `gpu` for the GPU image. On Linux, if your user ID isn't 1000 (check with `id -u`), use VS Code instead: it matches the container user to yours, which this path doesn't.
 
 To run and test the single-motor simulator, see [the robstride_motor README](src/robstride_motor/README.md).
