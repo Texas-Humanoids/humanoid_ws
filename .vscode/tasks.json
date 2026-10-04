@@ -1,0 +1,32 @@
+{
+  // Terminal > Run Task... These call the pixi tasks in pixi.toml.
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Build workspace",
+      "type": "shell",
+      "command": "pixi run build",
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": "$gcc"
+    },
+    {
+      "label": "Test workspace",
+      "type": "shell",
+      "command": "pixi run test",
+      "group": { "kind": "test", "isDefault": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "Webcam: publish",
+      "type": "shell",
+      "command": "pixi run webcam",
+      "problemMatcher": []
+    },
+    {
+      "label": "Webcam: view",
+      "type": "shell",
+      "command": "pixi run webcam-view",
+      "problemMatcher": []
+    }
+  ]
+}

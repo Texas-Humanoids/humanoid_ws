@@ -1,20 +1,5 @@
 services:
-  cpu:
-    profiles: [cpu]
-    build:
-      context: .
-      dockerfile: Dockerfile.cpu
-    image: humanoid-ros:cpu
-    network_mode: host
-    user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
-    stdin_open: true
-    tty: true
-    command: sleep infinity
-    volumes:
-      - .:/ws
-
   gpu:
-    profiles: [gpu]
     build:
       context: .
       dockerfile: Dockerfile.gpu
