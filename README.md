@@ -46,7 +46,6 @@ docker compose --profile cpu build
 docker compose --profile gpu build
 ```
 You can then enter the container with VSCode Dev Containers, which is the recommended way to work with this repo. 
-(We recommend to use command line instead of VSCode Dev Containers)
 
 You can also enter the container from the command line with:
 
@@ -64,6 +63,44 @@ docker compose --profile gpu up -d
 docker compose exec cpu bash              # open a shell inside it 
 docker compose --profile cpu down         # stop it when done
 ```
+
+### USB cameras in Dev Containers
+
+Both services pass a host V4L2 camera into the container at `/dev/video0` and
+add the host camera's group to the container user. The defaults are host
+`/dev/video0` and group ID `44` (`video` on Ubuntu).
+
+If your USB camera has a different device path or group ID, put the values in
+an untracked `.env` file at the repository root so both VS Code and command-line
+Compose use them. For example:
+
+```dotenv
+CAMERA_DEVICE=/dev/video2
+VIDEO_GID=44
+```
+
+On the host, use `v4l2-ctl --list-devices` to find the camera and
+`stat -c '%g' /dev/video2` to find its numeric group ID. The selected camera is
+always exposed as `/dev/video0` inside the container.
+
+Connect the camera before opening the dev container. After changing device or
+group settings, run **Dev Containers: Rebuild Container** from the VS Code
+Command Palette. Reopening or restarting an existing container does not apply
+new Docker device mappings. Recreate the container after unplugging and
+reconnecting a camera if its device mapping becomes stale.
+
+In the VS Code container terminal, check:
+
+```bash
+ls -l /dev/video0
+id
+test -r /dev/video0 && test -w /dev/video0 && echo "Camera permissions OK"
+```
+
+If the device is missing, check the container's device mappings. If it is
+present but inaccessible, compare the device's numeric group ID with `id -G`.
+Also ensure VS Code uses the same Docker context as the working command-line
+launch (`docker context show`).
 
 Once inside the container, you can build the workspace with:
 
