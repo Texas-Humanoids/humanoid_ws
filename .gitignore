@@ -16,6 +16,7 @@ training/wandb/
 training/**/*.pt
 
 # Editors / OS
+.env
 .vscode/*
 !.vscode/extensions.json
 .idea/
