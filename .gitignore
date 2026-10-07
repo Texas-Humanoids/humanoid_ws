@@ -28,3 +28,9 @@ firmware/**/build/
 *.bin
 *.hex
 *.map
+build/
+install/
+log/
+build/
+install/
+log/
