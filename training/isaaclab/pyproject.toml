@@ -1,0 +1,47 @@
+[project]
+name = "th-isaaclab"
+version = "0.1.0"
+description = "Isaac Lab environments and training scripts for Texas Humanoids robots"
+readme = "README.md"
+# Isaac Sim 5.1 only ships Python 3.11 wheels.
+requires-python = "==3.11.*"
+dependencies = [
+    # Latest generally available Isaac Lab, which requires Isaac Sim 5.1.
+    # Bump on purpose, in its own PR. Isaac Sim's packages on PyPI are
+    # NVIDIA's official stubs: on install they download the real wheels
+    # from pypi.nvidia.com.
+    "isaaclab[isaacsim,rsl-rl]==2.3.2.post1",
+    # Isaac Sim 5.1 pins torch 2.7.0. Isaac Lab's install docs use the
+    # CUDA 12.8 build (index below) on Linux x86_64.
+    "torch==2.7.0",
+    "torchvision==0.22.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.8,<0.13"]
+build-backend = "uv_build"
+
+[tool.uv]
+# We only run Isaac Sim on Linux x86_64.
+environments = ["sys_platform == 'linux' and platform_machine == 'x86_64'"]
+required-environments = ["sys_platform == 'linux' and platform_machine == 'x86_64'"]
+
+# Isaac Lab 2.3.2 doesn't cap most of its dependencies, so only use package
+# versions that existed when it was released (2026-02-11). Without this we'd
+# get e.g. warp-lang 1.17 and transformers 5.17, which it was never tested
+# with.
+# Move this date along with the isaaclab pin.
+exclude-newer = "2026-02-12T00:00:00Z"
+
+# The PyPI stub for isaacsim-core lists pywin32 without a Windows-only marker,
+# so without this no Linux lockfile resolves.
+override-dependencies = ["pywin32; sys_platform == 'win32'"]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+torchvision = { index = "pytorch-cu128" }
