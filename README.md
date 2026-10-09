@@ -20,7 +20,7 @@ humanoid_ws/
 │   ├── th_sensors/         IMU, camera, and other sensor drivers
 │   └── th_perception/      GPU perception with Isaac ROS (optional)
 ├── firmware/               microcontroller code for future custom motors
-├── training/               mjlab training (Python/uv, not built by colcon)
+├── training/               policy training: mjlab + Isaac Lab (Python/uv, not built by colcon)
 ├── policies/               trained walking policies
 └── tools/                  calibration and setup scripts
 ```
