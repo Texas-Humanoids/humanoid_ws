@@ -11,11 +11,11 @@ find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(OpenCV REQUIRED COMPONENTS core videoio)
 
-add_executable(ascii_camera_node src/AsciiCameraNode.cpp)
-ament_target_dependencies(ascii_camera_node rclcpp sensor_msgs)
-target_include_directories(ascii_camera_node PRIVATE ${OpenCV_INCLUDE_DIRS})
-target_link_libraries(ascii_camera_node ${OpenCV_LIBS})
-install(TARGETS ascii_camera_node
+add_executable(camera_node src/CameraNode.cpp)
+ament_target_dependencies(camera_node rclcpp sensor_msgs)
+target_include_directories(camera_node PRIVATE ${OpenCV_INCLUDE_DIRS})
+target_link_libraries(camera_node ${OpenCV_LIBS})
+install(TARGETS camera_node
   DESTINATION lib/${PROJECT_NAME}
 )
 
