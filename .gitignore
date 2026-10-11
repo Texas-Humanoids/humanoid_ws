@@ -28,3 +28,5 @@ firmware/**/build/
 *.bin
 *.hex
 *.map
+
+captured_images/
