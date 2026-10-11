@@ -13,11 +13,15 @@
 
 #include <opencv2/imgcodecs.hpp>
 
-class AsciiCameraNode : public rclcpp::Node
+class CameraNode : public rclcpp::Node
+
+// make sure to run this command instead of just the ros2 run <pkg> <exec> structure to save photos into correct folder:
+// ros2 run vision_test camera_node --ros-args -p output_dir:=$HOME/humanoid_ws/captured_images
+
 {
 public:
-  AsciiCameraNode()
-  : rclcpp::Node("ascii_camera_node")
+  CameraNode()
+  : rclcpp::Node("camera_node")
   {
     const std::string device =
       this->declare_parameter<std::string>("device", "/dev/video0");
@@ -100,7 +104,7 @@ public:
 int main(int argc, char * argv[])
 {
   rclcpp::init(argc, argv);
-  rclcpp::spin(std::make_shared<AsciiCameraNode>());
+  rclcpp::spin(std::make_shared<CameraNode>());
   rclcpp::shutdown();
   return 0;
 }
