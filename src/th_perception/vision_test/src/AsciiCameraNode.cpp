@@ -8,6 +8,11 @@
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/image.hpp"
 
+#include <filesystem>
+#include <string>
+
+#include <opencv2/imgcodecs.hpp>
+
 class AsciiCameraNode : public rclcpp::Node
 {
 public:
@@ -24,22 +29,29 @@ public:
 
     RCLCPP_INFO(this->get_logger(), "Opened %s", device.c_str());
 
+    output_dir_ =
+      this->declare_parameter<std::string>("output_dir", "captured_images");
+    std::filesystem::create_directories(output_dir_);
+
     image_publisher_ =
       this->create_publisher<sensor_msgs::msg::Image>(
       "image_raw", rclcpp::SensorDataQoS());
 
     capture_timer_ = this->create_wall_timer(
-      std::chrono::milliseconds(100),
+      std::chrono::milliseconds(1000),
       [this]()
       {
         this->on_timer();
       });
-  }
 
-private:
-  cv::VideoCapture capture_;
-  rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr image_publisher_;
-  rclcpp::TimerBase::SharedPtr capture_timer_;
+    }
+    
+    private:
+    cv::VideoCapture capture_;
+    rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr image_publisher_;
+    rclcpp::TimerBase::SharedPtr capture_timer_;
+    std::string output_dir_;
+    rclcpp::Time last_save_time_{0, 0, RCL_ROS_TIME};
 
   void on_timer()
   {
@@ -60,6 +72,18 @@ private:
     message.step = static_cast<uint32_t>(frame.step);
     message.data.assign(frame.datastart, frame.dataend);
     image_publisher_->publish(message);
+
+        // Save a JPEG at most once every 2 seconds.
+    const rclcpp::Time stamp = message.header.stamp;
+    if ((stamp - last_save_time_).seconds() >= 2.0) {
+      const std::string path =
+        output_dir_ + "/frame_" + std::to_string(stamp.nanoseconds()) + ".jpg";
+      if (cv::imwrite(path, frame)) {
+        last_save_time_ = stamp;
+      } else {
+        RCLCPP_WARN(this->get_logger(), "Failed to write %s", path.c_str());
+      }
+    }
 
     // cv::mean gives the average of each channel; average those together.
     const cv::Scalar channel_means = cv::mean(frame);
