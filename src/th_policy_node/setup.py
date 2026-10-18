@@ -18,9 +18,11 @@ setup(
     maintainer_email="noreply@github.com",
     description="Runs an ONNX walking policy on policy-ready ROS observations.",
     license="MIT",
+    tests_require=["pytest"],
     entry_points={
         "console_scripts": [
             "policy_node = th_policy_node.policy_node:main",
+            "fetch_berkeley_policy = th_policy_node.fetch_model:main",
         ],
     },
 )

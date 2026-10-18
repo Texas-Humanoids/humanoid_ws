@@ -81,7 +81,7 @@ class PolicyBoundaryTests(unittest.TestCase):
             SimpleNamespace(name="obs", shape=["batch", 3], type="tensor(float)")
         ]
         self.session.get_outputs.return_value = [
-            SimpleNamespace(name="actions", type="tensor(float)")
+            SimpleNamespace(name="actions", type="tensor(float)", shape=[1, 2])
         ]
         self.session.run.return_value = [np.array([[2.0, -2.0]], dtype=np.float32)]
         runtime.InferenceSession.return_value = self.session
@@ -139,6 +139,21 @@ class PolicyBoundaryTests(unittest.TestCase):
     def test_incompatible_shape_fails_at_startup(self):
         self.session.get_inputs.return_value[0].shape = [1, 4]
         with self.assertRaisesRegex(ValueError, "requires 4 values"):
+            policy.PolicyNode()
+
+    def test_wrong_output_width_fails_before_subscribing(self):
+        self.session.get_outputs.return_value[0].shape = [1, 12]
+        with self.assertRaisesRegex(ValueError, "output shape requires 12"):
+            policy.PolicyNode()
+
+    def test_non_singleton_batch_is_not_flattened_into_features(self):
+        self.session.get_inputs.return_value[0].shape = [3, 1]
+        with self.assertRaisesRegex(ValueError, "batch must be one"):
+            policy.PolicyNode()
+
+    def test_dynamic_features_are_rejected(self):
+        self.session.get_inputs.return_value[0].shape = [1, "features"]
+        with self.assertRaisesRegex(ValueError, "configured size"):
             policy.PolicyNode()
 
 

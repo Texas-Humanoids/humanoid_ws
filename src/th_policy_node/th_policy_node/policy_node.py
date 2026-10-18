@@ -138,6 +138,7 @@ class PolicyNode(Node):
         if len(model_outputs) != 1 or model_outputs[0].type != "tensor(float)":
             raise ValueError("Expected one float32 ONNX action output.")
         self._input_shape = self._make_input_shape(self._model_input.shape)
+        self._vector_shape(model_outputs[0].shape, len(self._joint_names), "output")
 
         self._publisher = self.create_publisher(
             JointState,
@@ -161,21 +162,24 @@ class PolicyNode(Node):
         )
 
     def _make_input_shape(self, model_shape: list[object]) -> tuple[int, ...]:
-        """Resolve dynamic ONNX dimensions while preserving fixed dimensions."""
-        if not model_shape:
-            raise ValueError("The ONNX model input must have a vector shape.")
+        return self._vector_shape(model_shape, self._observation_size, "input")
 
-        shape = tuple(
-            dimension if isinstance(dimension, int) and dimension > 0 else 1
-            for dimension in model_shape
-        )
-        if int(np.prod(shape)) != self._observation_size:
+    @staticmethod
+    def _vector_shape(model_shape, expected_size, label):
+        """Accept one vector, optionally with a singleton/dynamic batch axis."""
+        if len(model_shape) not in (1, 2):
+            raise ValueError(f"ONNX {label} must have shape [features] or [batch, features].")
+        if len(model_shape) == 2:
+            batch = model_shape[0]
+            if isinstance(batch, int) and batch != 1:
+                raise ValueError(f"ONNX {label} batch must be one or dynamic.")
+        features = model_shape[-1]
+        if not isinstance(features, int) or features != expected_size:
             raise ValueError(
-                "The ONNX input shape requires "
-                f"{int(np.prod(shape))} values, but expected_observation_size is "
-                f"{self._observation_size}."
+                f"The ONNX {label} shape requires {features} values, "
+                f"but the configured size is {expected_size}."
             )
-        return shape
+        return (expected_size,) if len(model_shape) == 1 else (1, expected_size)
 
     def _on_observation(self, message: Float32MultiArray) -> None:
         observation = np.asarray(message.data, dtype=np.float32)
@@ -231,6 +235,8 @@ def main(args: list[str] | None = None) -> None:
     try:
         node = PolicyNode()
         rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
     except (OSError, ValueError) as error:
         print(f"Could not start the policy node: {error}")
         raise
