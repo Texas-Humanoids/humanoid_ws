@@ -34,8 +34,6 @@ struct MotorLimits
   double kd_max;
 };
 
-// Only position_min/max are actually used now (for clamping commands before
-// writing loc_ref). The rest are kept for reference / future modes.
 const MotorLimits kRS06Limits = {
   -4.0 * M_PI, 4.0 * M_PI,
   -50.0, 50.0,
@@ -44,19 +42,17 @@ const MotorLimits kRS06Limits = {
   0.0, 100.0
 };
 
-// Host ID and comm types, matching the actuator team's working scripts.
 constexpr uint8_t kHostCanId = 0xFF;
 constexpr uint8_t kCommTypeEnable = 3;
 constexpr uint8_t kCommTypeStop = 4;
 constexpr uint8_t kCommTypeParamRead = 0x11;
 constexpr uint8_t kCommTypeParamWrite = 0x12;
 
-// RobStride parameter indices used in CSP (Cyclic Synchronous Position) mode.
-constexpr uint16_t kParamRunMode = 0x7005;       // uint8:  5 = CSP position mode
-constexpr uint16_t kParamLocRef = 0x7016;        // float32, rad: target position
-constexpr uint16_t kParamSpeedLimit = 0x7017;    // float32, rad/s
-constexpr uint16_t kParamCurrentLimit = 0x7018;  // float32, A
-constexpr uint16_t kParamMechPos = 0x7019;       // float32, rad: feedback position
+constexpr uint16_t kParamRunMode = 0x7005;
+constexpr uint16_t kParamLocRef = 0x7016;
+constexpr uint16_t kParamSpeedLimit = 0x7017;
+constexpr uint16_t kParamCurrentLimit = 0x7018;
+constexpr uint16_t kParamMechPos = 0x7019;
 
 constexpr uint8_t kCspRunMode = 5;
 
@@ -75,7 +71,7 @@ public:
       this->declare_parameter<std::string>("motor_model", "RS06");
 
     motor_id_ =
-      this->declare_parameter<int64_t>("motor_id", 127);
+      this->declare_parameter<int64_t>("motor_id");
 
     if (motor_model_ == "RS06") {
       motor_limits_ = kRS06Limits;
@@ -87,13 +83,11 @@ public:
     }
 
     if (open_can_socket()) {
-      // Disable first (same as the actuator team's configure_motor()), so
-      // mode/limit changes below land on a motor that isn't already driving.
       send_stop_frame();
 
       write_param_u8(kParamRunMode, kCspRunMode);
-      write_param_float(kParamSpeedLimit, 1.0f);    // conservative first-test value
-      write_param_float(kParamCurrentLimit, 3.0f);  // conservative first-test value
+      write_param_float(kParamSpeedLimit, 1.0f);
+      write_param_float(kParamCurrentLimit, 3.0f);
 
       float current_position = 0.0f;
       if (read_param_float(kParamMechPos, current_position)) {
@@ -120,31 +114,30 @@ public:
         can_interface_.c_str());
     }
 
-    position_publisher_ =
+    actual_position_publisher_ =
       this->create_publisher<std_msgs::msg::Float64>(
-                "motor/simulated_position", 10);
+        "motor/actual_position", 10);
 
     position_subscription_ =
       this->create_subscription<std_msgs::msg::Float64>(
-                "motor/target_position",
-                10,
-      [this](std_msgs::msg::Float64::ConstSharedPtr message)
-      {
-        this->on_position_command(message);
-                });
+        "motor/target_position",
+        10,
+        [this](std_msgs::msg::Float64::ConstSharedPtr message)
+        {
+          this->on_position_command(message);
+        });
 
     feedback_timer_ = this->create_wall_timer(
-            std::chrono::milliseconds(50),
+      std::chrono::milliseconds(100),
       [this]()
       {
-        this->update_simulation();
-            });
+        this->poll_feedback();
+      });
   }
 
   void stop()
   {
     feedback_timer_->cancel();
-    target_position_ = simulated_position_;
 
     if (can_socket_ >= 0) {
       send_stop_frame();
@@ -153,8 +146,8 @@ public:
     }
 
     RCLCPP_INFO(
-            this->get_logger(),
-            "Sent stop command to the motor and closed the CAN socket.");
+      this->get_logger(),
+      "Sent stop command to the motor and closed the CAN socket.");
   }
 
 private:
@@ -165,13 +158,13 @@ private:
   int can_socket_ = -1;
 
   double target_position_ = 0.0;
-  double simulated_position_ = 0.0;
+  int feedback_poll_count_ = 0;
 
   rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr
     position_subscription_;
 
   rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr
-    position_publisher_;
+    actual_position_publisher_;
 
   rclcpp::TimerBase::SharedPtr feedback_timer_;
 
@@ -203,11 +196,9 @@ private:
       return false;
     }
 
-    // Reads must time out, or read_param_float()'s retry loop would block
-    // forever on the first attempt whenever a reply is dropped or delayed.
     struct timeval tv;
     tv.tv_sec = 0;
-    tv.tv_usec = 20000;  // 20ms
+    tv.tv_usec = 20000;
     setsockopt(can_socket_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
     return true;
@@ -303,7 +294,7 @@ private:
     while (std::chrono::steady_clock::now() < deadline) {
       const ssize_t n = read(can_socket_, &reply, sizeof(reply));
       if (n != static_cast<ssize_t>(sizeof(reply))) {
-        continue;  // timed-out attempt (EAGAIN) or short read -- keep trying
+        continue;
       }
 
       const uint32_t arb = reply.can_id & CAN_EFF_MASK;
@@ -315,6 +306,11 @@ private:
         static_cast<uint16_t>(reply.data[0]) |
         (static_cast<uint16_t>(reply.data[1]) << 8);
       if (reply_index != index) {
+        continue;
+      }
+
+      const uint8_t responding_motor_id = (arb >> 8) & 0xFF;
+      if (responding_motor_id != static_cast<uint8_t>(motor_id_)) {
         continue;
       }
 
@@ -330,13 +326,29 @@ private:
     return false;
   }
 
+  void poll_feedback()
+  {
+    float actual = 0.0f;
+    if (!read_param_float(kParamMechPos, actual)) {
+      return;
+    }
+
+    std_msgs::msg::Float64 msg;
+    msg.data = actual;
+    actual_position_publisher_->publish(msg);
+
+    if (++feedback_poll_count_ % 10 == 0) {
+      RCLCPP_INFO(this->get_logger(), "Actual position: %.3f rad", actual);
+    }
+  }
+
   void on_position_command(
     std_msgs::msg::Float64::ConstSharedPtr message)
   {
     if (!std::isfinite(message->data)) {
       RCLCPP_WARN(
-                this->get_logger(),
-                "Ignoring a non-finite target position.");
+        this->get_logger(),
+        "Ignoring a non-finite target position.");
       return;
     }
 
@@ -348,27 +360,9 @@ private:
     write_param_float(kParamLocRef, static_cast<float>(target_position_));
 
     RCLCPP_INFO(
-            this->get_logger(),
-            "New target: %.3f rad",
-            target_position_);
-  }
-
-  void update_simulation()
-  {
-        // Toy simulation: move at most 0.02 radians per timer tick.
-    const double error = target_position_ - simulated_position_;
-    const double max_step = 0.02;
-
-    if (std::abs(error) <= max_step) {
-      simulated_position_ = target_position_;
-    } else {
-      simulated_position_ +=
-        (error > 0.0) ? max_step : -max_step;
-    }
-
-    std_msgs::msg::Float64 feedback;
-    feedback.data = simulated_position_;
-    position_publisher_->publish(feedback);
+      this->get_logger(),
+      "New target: %.3f rad",
+      target_position_);
   }
 };
 
