@@ -10,9 +10,9 @@ __pycache__/
 .venv/
 
 # Training outputs (deployed policies go in policies/ instead)
-training/logs/
-training/outputs/
-training/wandb/
+training/**/logs/
+training/**/outputs/
+training/**/wandb/
 training/**/*.pt
 
 # Editors / OS
