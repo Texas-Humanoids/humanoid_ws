@@ -8,7 +8,7 @@ We're trying two simulators side by side to see which one we prefer:
 | Folder | Simulator | Runs on |
 | --- | --- | --- |
 | [`mjlab/`](mjlab/) | [mjlab](https://github.com/mujocolab/mjlab) (MuJoCo Warp) | Linux + NVIDIA GPU; macOS CPU for small tests |
-| `isaaclab/` | Isaac Lab (Isaac Sim) | coming next |
+| [`isaaclab/`](isaaclab/) | [Isaac Lab](https://isaac-sim.github.io/IsaacLab/) 2.3 (Isaac Sim 5.1) | Linux + NVIDIA RTX GPU only |
 
 Each folder is its own Python project managed with
 [uv](https://docs.astral.sh/uv/), with its own virtual environment. They have
