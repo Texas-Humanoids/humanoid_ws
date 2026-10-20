@@ -1,0 +1,14 @@
+# Opt-in camera hardware access. The distro SDK uses native V4L2 and HID/IIO,
+# including writable IMU sysfs controls. Use together with compose.yaml.
+services:
+  cpu:
+    privileged: true
+    volumes:
+      - /dev:/dev
+      - /sys:/sys
+
+  gpu:
+    privileged: true
+    volumes:
+      - /dev:/dev
+      - /sys:/sys

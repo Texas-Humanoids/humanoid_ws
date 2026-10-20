@@ -4,8 +4,8 @@ Software for the Texas Humanoids robot, a humanoid based on the
 [Berkeley Humanoid Lite](https://github.com/HybridRobotics/berkeley-humanoid-lite),
 built on **ROS 2 Jazzy**.
 
-This repo is a ROS 2 workspace. Right now it only has the folder layout;
-code will be added in later pull requests.
+This repo is a ROS 2 workspace. Most packages are scaffolding;
+`th_sensors` provides RealSense camera launch files and configuration.
 
 ## Repository layout
 
@@ -28,7 +28,7 @@ humanoid_ws/
 `th_` = Texas Humanoids. It marks packages we wrote, so they're easy to tell
 apart from third-party ones.
 
-Each folder has a README describing what will go in it.
+Each folder has a README describing its purpose and usage.
 
 ## Docker Setup
 
@@ -67,4 +67,17 @@ Once inside the container, you can build the workspace with:
 ```bash
 source /opt/ros/jazzy/setup.bash
 colcon build --symlink-install
+```
+
+## RealSense cameras
+
+Both Docker images include the Jazzy RealSense ROS driver and librealsense SDK.
+For host permissions, camera hardware access in Docker/Dev Containers, launch
+commands, and published topics, see [th_sensors](src/th_sensors/README.md).
+
+After building and sourcing the workspace inside the camera-enabled container:
+
+```bash
+source install/setup.bash
+ros2 launch th_sensors realsense.launch.py
 ```

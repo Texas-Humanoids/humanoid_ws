@@ -1,0 +1,18 @@
+# Launch argument defaults for the upstream rs_launch.py (a flat mapping, not a
+# ROS parameter file). Each setting can be overridden on the launch command line.
+camera_namespace: camera
+camera_name: camera
+enable_color: true
+enable_depth: true
+rgb_camera.color_profile: '640,480,30'
+depth_module.depth_profile: '640,480,30'
+enable_sync: true
+align_depth.enable: true
+pointcloud.enable: false
+# Keep IMU streams off so cameras without an IMU can use the same launch file.
+enable_gyro: false
+enable_accel: false
+unite_imu_method: 0
+publish_tf: true
+# This launch works in both CPU and GPU images without an OpenGL context.
+accelerate_gpu_with_glsl: false

@@ -1,4 +1,8 @@
 FROM ros:jazzy-ros-base
 
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ros-jazzy-realsense2-camera ros-jazzy-librealsense2 \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /ws
 CMD ["bash"]

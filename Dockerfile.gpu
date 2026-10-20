@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
        > /etc/apt/sources.list.d/nvidia-isaac-ros.list \
     && apt-get update && apt-get install -y --no-install-recommends \
        build-essential git ros-jazzy-ros-base python3-colcon-common-extensions python3-rosdep \
+       ros-jazzy-realsense2-camera ros-jazzy-librealsense2 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /ws
