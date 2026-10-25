@@ -75,12 +75,12 @@ Reads an 8BitDo controller (X-input mode) and publishes topics other nodes can s
 **Requirements:** `sudo apt install ros-jazzy-joy`
 
 **Build:**
-    colcon build --packages-select gamepad_teleop_cpp
+    colcon build --packages-select gamepad_node
     source install/setup.bash
 
 **Run (two terminals, workspace sourced):**
     ros2 run joy joy_node --ros-args -p autorepeat_rate:=20.0
-    ros2 run gamepad_teleop_cpp gamepad_node
+    ros2 run gamepad_node gamepad_node
 
 **Topics published:**
 - `/joy` (sensor_msgs/Joy): raw controller state, from joy_node
