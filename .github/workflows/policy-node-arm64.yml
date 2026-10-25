@@ -2,6 +2,7 @@ name: Policy node ARM64
 
 on:
   push:
+    branches: [main]
     paths:
       - Dockerfile.cpu
       - Dockerfile.gpu
