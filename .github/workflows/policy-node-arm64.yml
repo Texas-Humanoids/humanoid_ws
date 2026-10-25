@@ -27,7 +27,7 @@ jobs:
       matrix:
         dockerfile: [Dockerfile.cpu, Dockerfile.gpu]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Build ARM64 development image
         run: docker build --platform linux/arm64 -f "${{ matrix.dockerfile }}" -t policy-node:arm64 .
       - name: Build and test policy package in ARM64 image
