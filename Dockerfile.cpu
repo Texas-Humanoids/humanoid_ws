@@ -1,8 +1,33 @@
 FROM ros:jazzy-ros-base
+ARG TARGETARCH
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-	libopencv-dev \
-	&& rm -rf /var/lib/apt/lists/*
+    ca-certificates curl \
+    libopencv-dev \
+    python3-colcon-common-extensions \
+    python3-numpy \
+    python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+
+# Pinned C++ ONNX Runtime SDK for the policy node.
+RUN case "$TARGETARCH" in \
+      amd64) ort_arch=x64; ort_sha256=8344d55f93d5bc5021ce342db50f62079daf39aaafb5d311a451846228be49b3 ;; \
+      arm64) ort_arch=aarch64; ort_sha256=bb76395092d150b52c7092dc6b8f2fe4d80f0f3bf0416d2f269193e347e24702 ;; \
+      *) echo "Unsupported Docker target architecture: $TARGETARCH" >&2; exit 1 ;; \
+    esac \
+    && curl -fsSL "https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/onnxruntime-linux-${ort_arch}-1.22.0.tgz" \
+      -o /tmp/onnxruntime.tgz \
+    && echo "$ort_sha256  /tmp/onnxruntime.tgz" | sha256sum -c - \
+    && mkdir -p /opt/onnxruntime \
+    && tar -xzf /tmp/onnxruntime.tgz -C /opt/onnxruntime --strip-components=1 \
+    && echo /opt/onnxruntime/lib > /etc/ld.so.conf.d/onnxruntime.conf \
+    && ldconfig && rm /tmp/onnxruntime.tgz
+ENV CMAKE_PREFIX_PATH=/opt/onnxruntime
+
+COPY src/th_policy_node/requirements.txt /tmp/th_policy_node-requirements.txt
+RUN python3 -m pip install --break-system-packages --no-cache-dir \
+    -r /tmp/th_policy_node-requirements.txt \
+    && rm /tmp/th_policy_node-requirements.txt
 
 WORKDIR /ws
 CMD ["bash"]
