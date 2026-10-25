@@ -1,0 +1,16 @@
+gamepad_node:
+  ros__parameters:
+    # Full-input speed; keyboard commands are multiplied by keyboard_scaling.
+    scale.linear.x: 0.5  # forward/back, m/s
+    scale.linear.y: 0.5  # side to side, m/s
+    scale.angular.z: 1.0  # turning, rad/s
+    keyboard_scaling: 0.8
+    # Xbox 360 / X-input layout from joy_node.
+    axis_forward: 1
+    axis_lateral: 0
+    axis_turn: 3
+    enable_button: 4  # LB; -1 disables the enable button
+    joy_timeout: 0.5  # seconds; 0 disables the watchdog
+    keyboard_device: ""  # empty = auto-detect a local /dev/input keyboard
+    publish_rate: 20.0  # keyboard command frequency, Hz
+    print_velocity: true

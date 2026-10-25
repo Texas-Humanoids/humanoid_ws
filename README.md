@@ -108,3 +108,6 @@ Once inside the container, you can build the workspace with:
 source /opt/ros/jazzy/setup.bash
 colcon build --symlink-install
 ```
+## Gamepad teleoperation
+
+See [gamepad_node](src/gamepad_node/README.md) for controller/keyboard setup and tests.
