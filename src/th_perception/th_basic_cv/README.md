@@ -92,6 +92,95 @@ ros2 launch th_basic_cv basic_cv_demo.launch.py use_samples:=false image_topic:=
 To see the output, open `image_annotated` or `image_edges` in Foxglove or
 `rqt_image_view`.
 
+## Run on a camera and record the results
+
+`camera_node` saves the raw camera photos. The labeled frames (boxes, shape and
+color) only exist live on `image_annotated`, so to keep them, record that topic
+with `ros2 bag`. No code changes needed.
+
+Use three terminals, each with the workspace sourced (`source install/setup.bash`).
+On macOS, also do the [macOS setup](#macos-setup) below in each one.
+
+1. Start the camera. It publishes `image_raw` once a second at 640x480 and saves
+   a raw JPEG about every 2 seconds:
+
+   ```bash
+   ros2 run vision_test camera_node --ros-args -p output_dir:=$HOME/humanoid_ws/captured_images
+   ```
+
+2. Start the CV node, which labels each frame and publishes `image_annotated`:
+
+   ```bash
+   ros2 run th_basic_cv basic_cv_node
+   ```
+
+   Its log lists what it sees, e.g. `3 objects: red square, blue circle, green triangle`.
+
+3. Record the labeled frames. The recording goes in a new folder; keep it
+   outside the repo so it never gets committed:
+
+   ```bash
+   mkdir -p ~/humanoid_recordings
+   ros2 bag record -o ~/humanoid_recordings/cv_$(date +%Y-%m-%d_%H-%M-%S) /image_annotated
+   ```
+
+   Add `/image_raw /image_edges` to the end to record those too. Stop with
+   Ctrl+C and wait for it to exit: it writes the folder's `metadata.yaml` on the
+   way out. If it was killed before that, run `ros2 bag reindex <folder>` to
+   rebuild it.
+
+4. Check what was recorded:
+
+   ```bash
+   ros2 bag info ~/humanoid_recordings/<folder>
+   ```
+
+   You should see `Topic: /image_annotated | Type: sensor_msgs/msg/Image` with a
+   count of about one message per second of recording.
+
+5. Watch it back, either by opening the folder's `.mcap` file in Foxglove
+   (Open local file), or by replaying it and viewing the topic
+   (`rqt_image_view` is in the `ros-jazzy-rqt-image-view` package):
+
+   ```bash
+   ros2 bag play ~/humanoid_recordings/<folder>
+   ros2 run rqt_image_view rqt_image_view /image_annotated
+   ```
+
+| What | Where | Notes |
+| --- | --- | --- |
+| Raw photos | `output_dir` of `camera_node` | JPEGs named `frame_<timestamp>.jpg`, no boxes |
+| Labeled frames | the `ros2 bag` folder | `.mcap` file plus `metadata.yaml`; about 1 MB per frame at 640x480 |
+
+Recorded frames keep the camera's timestamp in `header.stamp`. `camera_node`
+only saves about one photo every 2 seconds, so every saved photo has a labeled
+frame with the same `<timestamp>`, but not every labeled frame has a photo.
+
+For a clean test, hold solid colored paper shapes against a plain wall in even
+light. A busy background (windows, shelves, a skylight) adds many extra
+`gray polygon` boxes.
+
+### macOS setup
+
+Camera access: run the commands from the Terminal app, and allow it in
+System Settings > Privacy & Security > Camera. macOS only asks apps that
+declare camera use, so some tools (Claude Code, for example) are denied
+without a prompt.
+
+Image topics: macOS caps UDP packets at 9216 bytes and has no multicast on
+localhost, so camera-sized images never reach other nodes with the default
+settings. Run this in each terminal first:
+
+```bash
+export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
+export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+export CYCLONEDDS_URI='<CycloneDDS><Domain><General><MaxMessageSize>8000B</MaxMessageSize></General></Domain></CycloneDDS>'
+```
+
+`SUBNET` means other ROS 2 machines on the same Wi-Fi with the default domain
+can see your topics. Set `ROS_DOMAIN_ID` to a number of your own (0 to 101)
+in every terminal to keep yours separate.
+
 ## Tests
 
 ```bash
