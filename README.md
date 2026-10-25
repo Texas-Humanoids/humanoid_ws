@@ -108,23 +108,6 @@ Once inside the container, you can build the workspace with:
 source /opt/ros/jazzy/setup.bash
 colcon build --symlink-install
 ```
-## Gamepad topic node (C++)
+## Gamepad teleoperation
 
-Reads an 8BitDo controller (X-input mode) and publishes topics other nodes can subscribe to.
-
-**Requirements:** `sudo apt install ros-jazzy-joy`
-
-**Build:**
-    colcon build --packages-select gamepad_node
-    source install/setup.bash
-
-**Run (two terminals, workspace sourced):**
-    ros2 run joy joy_node --ros-args -p autorepeat_rate:=20.0
-    ros2 run gamepad_node gamepad_node
-
-**Topics published:**
-- `/joy` (sensor_msgs/Joy): raw controller state, from joy_node
-- `/cmd_vel` (geometry_msgs/Twist): left stick, only while LB is held
-- `/gamepad/button_event` (std_msgs/String): one message per button press
-
-**Verify:** `ros2 topic echo /cmd_vel`
+See [gamepad_node](src/gamepad_node/README.md) for controller/keyboard setup and tests.

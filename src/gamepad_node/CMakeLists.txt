@@ -22,9 +22,7 @@ install(DIRECTORY launch config DESTINATION share/${PROJECT_NAME})
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
-  # the following line skips the linter which checks for copyrights
   set(ament_cmake_copyright_FOUND TRUE)
-  # the following line skips cpplint (only works in a git repo)
   set(ament_cmake_cpplint_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
 
@@ -34,15 +32,9 @@ if(BUILD_TESTING)
   ament_cppcheck(LIBRARIES googletest INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
   find_package(ament_cmake_gtest REQUIRED)
-  ament_add_gtest(test_teleop_mapping test/test_teleop_mapping.cpp)
-  target_include_directories(test_teleop_mapping PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include)
-  target_compile_features(test_teleop_mapping PRIVATE cxx_std_17)
-
-  ament_add_gtest(test_keyboard_input test/test_keyboard_input.cpp)
-  target_include_directories(test_keyboard_input PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include)
-  target_compile_features(test_keyboard_input PRIVATE cxx_std_17)
+  ament_add_gtest(test_input test/test_input.cpp)
+  target_include_directories(test_input PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  target_compile_features(test_input PRIVATE cxx_std_17)
 
   find_package(ament_cmake_pytest REQUIRED)
   ament_add_pytest_test(test_gamepad_node test/test_gamepad_node.py

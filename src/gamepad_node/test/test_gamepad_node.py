@@ -52,10 +52,10 @@ class RunningNode:
         self.wait(lambda: self.joy.get_subscription_count() == 1)
         self.wait(lambda: self.observer.count_publishers('cmd_vel') == 1)
 
-    def send(self, axes=None, enabled=True):
+    def send(self, axes=None, enabled=True, buttons=None):
         msg = Joy()
         msg.axes = axes if axes is not None else [0.0, 1.0, 0.0, 0.0]
-        msg.buttons = [0, 0, 0, 0, int(enabled)]
+        msg.buttons = buttons if buttons is not None else [0, 0, 0, 0, int(enabled)]
         self.joy.publish(msg)
 
     def close(self):
@@ -137,6 +137,10 @@ def test_enable_release_mapping_and_button_edges(running_node):
     node.send()
     node.wait(lambda: len(node.velocities) >= 2)
     assert len(node.buttons) == 1
+    node.send(buttons=[])
+    node.wait(lambda: is_stop(node.velocities[-1]))
+    node.send()
+    node.wait(lambda: node.velocities[-1].linear.x == 0.5)
     node.send(enabled=False)
     node.wait(lambda: is_stop(node.velocities[-1]))
     count = len(node.velocities)

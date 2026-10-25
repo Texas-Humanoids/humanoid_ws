@@ -1,25 +1,16 @@
 gamepad_node:
   ros__parameters:
-    # input_mode is set by the launch file (controller or keyboard)
-
-    # Speed at full input (stick fully pushed, or key held with keyboard_scaling = 1.0)
-    scale:
-      linear:
-        x: 0.5      # forward/back, m/s
-        y: 0.5      # side to side, m/s
-      angular:
-        z: 1.0      # turning, rad/s
-    keyboard_scaling: 0.8   # keyboard max = 80% of full speed
-
-    # Controller (Xbox 360 layout from joy_node)
-    axis_forward: 1    # left stick up/down
-    axis_lateral: 0    # left stick left/right
-    axis_turn: 3       # right stick left/right
-    enable_button: 4   # LB; -1 = no enable button
-    joy_timeout: 0.5   # s; stop if /joy goes quiet while enabled (0.0 = off)
-
-    # Keyboard
-    keyboard_device: ""   # empty = auto-detect
-    publish_rate: 20.0    # Hz
-
+    # Full-input speed; keyboard commands are multiplied by keyboard_scaling.
+    scale.linear.x: 0.5  # forward/back, m/s
+    scale.linear.y: 0.5  # side to side, m/s
+    scale.angular.z: 1.0  # turning, rad/s
+    keyboard_scaling: 0.8
+    # Xbox 360 / X-input layout from joy_node.
+    axis_forward: 1
+    axis_lateral: 0
+    axis_turn: 3
+    enable_button: 4  # LB; -1 disables the enable button
+    joy_timeout: 0.5  # seconds; 0 disables the watchdog
+    keyboard_device: ""  # empty = auto-detect a local /dev/input keyboard
+    publish_rate: 20.0  # keyboard command frequency, Hz
     print_velocity: true

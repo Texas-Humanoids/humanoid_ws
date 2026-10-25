@@ -5,7 +5,6 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
-#include <cstdint>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -38,7 +37,6 @@ struct JoyAxisConfig
   int turn{3};     // right stick left/right (left = +)
 };
 
-// Which keyboard keys are currently held.
 struct KeyState
 {
   bool forward{false};     // W
@@ -49,7 +47,6 @@ struct KeyState
   bool turn_right{false};  // Right arrow
 };
 
-// Throws std::invalid_argument if the configuration is unusable.
 inline void validate(const ScaleConfig & s)
 {
   if (!std::isfinite(s.linear_x) || !std::isfinite(s.linear_y) || !std::isfinite(s.angular_z)) {
@@ -63,12 +60,6 @@ inline void validate(const ScaleConfig & s)
   }
 }
 
-// Turns -0.0 into 0.0 so outputs never show as "-0.00".
-inline double positive_zero(double v)
-{
-  return v + 0.0;
-}
-
 // Reads one axis safely: missing index -> 0, NaN/inf -> 0, otherwise clamped to [-1, 1].
 inline double axis_value(const std::vector<float> & axes, int index)
 {
@@ -76,64 +67,25 @@ inline double axis_value(const std::vector<float> & axes, int index)
     return 0.0;
   }
   const double v = axes[static_cast<std::size_t>(index)];
-  if (!std::isfinite(v)) {
-    return 0.0;
-  }
-  return std::clamp(v, -1.0, 1.0);
+  return std::isfinite(v) ? std::clamp(v, -1.0, 1.0) : 0.0;
 }
 
 // Controller: left stick = translation (x, y), right stick X = turning only.
 inline Velocity joy_to_velocity(
   const std::vector<float> & axes, const JoyAxisConfig & a, const ScaleConfig & s)
 {
-  Velocity v;
-  v.linear_x = positive_zero(axis_value(axes, a.forward) * s.linear_x);
-  v.linear_y = positive_zero(axis_value(axes, a.lateral) * s.linear_y);
-  v.angular_z = positive_zero(axis_value(axes, a.turn) * s.angular_z);
-  return v;
-}
-
-// +1 if only the positive key is held, -1 if only the negative one, 0 if neither or both.
-inline int key_direction(bool positive, bool negative)
-{
-  return static_cast<int>(positive) - static_cast<int>(negative);
+  return {axis_value(axes, a.forward) * s.linear_x + 0.0,
+    axis_value(axes, a.lateral) * s.linear_y + 0.0,
+    axis_value(axes, a.turn) * s.angular_z + 0.0};
 }
 
 // Keyboard: same range as the controller ([-1, 1] per axis), times keyboard_scaling.
 inline Velocity keys_to_velocity(const KeyState & k, const ScaleConfig & s)
 {
-  Velocity v;
-  v.linear_x = positive_zero(
-    key_direction(k.forward, k.back) * s.linear_x * s.keyboard_scaling);
-  v.linear_y = positive_zero(
-    key_direction(k.left, k.right) * s.linear_y * s.keyboard_scaling);
-  v.angular_z = positive_zero(
-    key_direction(k.turn_left, k.turn_right) * s.angular_z * s.keyboard_scaling);
-  return v;
-}
-
-// True if the enable (deadman) button is held. enable_button < 0 means always enabled.
-inline bool is_enabled(const std::vector<int32_t> & buttons, int enable_button)
-{
-  if (enable_button < 0) {
-    return true;
-  }
-  const auto i = static_cast<std::size_t>(enable_button);
-  return i < buttons.size() && buttons[i] == 1;
-}
-
-// Indices of buttons that went from released to pressed.
-inline std::vector<std::size_t> newly_pressed(
-  const std::vector<int32_t> & previous, const std::vector<int32_t> & current)
-{
-  std::vector<std::size_t> pressed;
-  for (std::size_t i = 0; i < current.size(); ++i) {
-    const bool was_down = i < previous.size() && previous[i] != 0;
-    if (current[i] != 0 && !was_down) {
-      pressed.push_back(i);
-    }
-  }
-  return pressed;
+  // Subtraction cancels opposite keys; +0.0 normalizes negative zero.
+  return {(k.forward - k.back) * s.linear_x * s.keyboard_scaling + 0.0,
+    (k.left - k.right) * s.linear_y * s.keyboard_scaling + 0.0,
+    (k.turn_left - k.turn_right) * s.angular_z * s.keyboard_scaling + 0.0};
 }
 
 // Xbox 360 button names as reported by joy_node.
@@ -141,10 +93,7 @@ inline std::string button_name(std::size_t index)
 {
   static const std::array<const char *, 11> names = {
     "A", "B", "X", "Y", "LB", "RB", "BACK", "START", "GUIDE", "L_STICK", "R_STICK"};
-  if (index < names.size()) {
-    return names[index];
-  }
-  return "BUTTON_" + std::to_string(index);
+  return index < names.size() ? names[index] : "BUTTON_" + std::to_string(index);
 }
 
 }  // namespace gamepad_node
