@@ -39,6 +39,32 @@ Two gotchas we hit repeatedly:
    ```
    Then redo the `ip link set can0 up ...` step above — the interface comes back as a fresh, unconfigured device each time it's reattached.
 
+### Find the motor ID (if unknown or unresponsive)
+
+If the node logs `Could not read starting position from motor X; refusing to enable`, the motor may not actually be at the ID you're assuming — ours turned out to be configured to `1`, not the `127` we initially assumed from the actuator team.
+
+Requires `can-utils` (`candump`/`cansend`) and the node **not** running (it shares `can0`).
+
+Watch for replies in one terminal:
+```bash
+candump can0
+```
+
+Ping every possible ID (0–127) with a "Get Device ID" request (comm type `0`) in another:
+```bash
+for id in $(seq 0 127); do
+  printf -v hexid '%08X' $((0xFF00 | id))
+  cansend can0 ${hexid}#0000000000000000
+  sleep 0.02
+done
+```
+
+A live motor replies with something like:
+```
+can0  000001FE   [8]  6E 45 3B 4E 20 71 30 0B
+```
+— comm type `0`, the responding motor's own ID embedded in the middle bits (`01` here → ID `1`), destination `0xFE`, and a non-zero UUID payload. Ignore any reply with an all-zero payload — that's a bogus/stale response, not a real motor. Whatever ID actually answers is the one to pass as `-p motor_id:=...` when running the node.
+
 ### Build
 
 Inside your ROS 2 Jazzy environment (we build inside a Docker container with `--network host` so it shares the host's `can0`):
@@ -107,7 +133,7 @@ Unit tests cover CAN ID packing and parameter encode/decode against real capture
 ## Troubleshooting
 
 - **`Could not open CAN socket on 'can0'`** — the interface doesn't exist or isn't visible to this environment. Check `ip link show` on the host, and `ls /sys/class/net/` inside the container.
-- **`Could not read starting position from motor X; refusing to enable`** — the socket opened, but nothing answered. Check: is the motor actually powered? Is the ground wire connected? Run `candump can0` in parallel to see whether request frames are going out with no reply at all (the motor isn't there) versus going out and visibly tripping transmit errors (`ip -details link show can0` — look for `ERROR-PASSIVE` or `bus-off`).
+- **`Could not read starting position from motor X; refusing to enable`** — the socket opened, but nothing answered. Check: is the motor actually powered? Is the ground wire connected? Run `candump can0` in parallel to see whether request frames are going out with no reply at all (the motor isn't there, or is at a different ID — see [Find the motor ID](#find-the-motor-id-if-unknown-or-unresponsive)) versus going out and visibly tripping transmit errors (`ip -details link show can0` — look for `ERROR-PASSIVE` or `bus-off`).
 - **`CAN write failed`, repeating** — the CAN controller has likely gone bus-off/error-passive from unacknowledged transmits (nothing on the bus is responding). Reset with `sudo ip link set can0 down && sudo ip link set can0 up type can bitrate 1000000`, but this won't stay fixed unless the underlying wiring/power issue is also resolved.
 
 ## Known limitations
