@@ -7,11 +7,16 @@ services:
     image: humanoid-ros:cpu
     network_mode: host
     user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
+    group_add:
+      - "${VIDEO_GID:-44}"
+    devices:
+      - ${CAMERA_DEVICE:-/dev/video0}:/dev/video0
     stdin_open: true
     tty: true
     command: sleep infinity
     volumes:
       - .:/ws
+
 
   gpu:
     profiles: [gpu]
@@ -21,8 +26,11 @@ services:
     image: humanoid-ros:gpu
     network_mode: host
     user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
+    group_add:
+      - "${VIDEO_GID:-44}"
     devices:
       - nvidia.com/gpu=all
+      - ${CAMERA_DEVICE:-/dev/video0}:/dev/video0
     stdin_open: true
     tty: true
     command: sleep infinity

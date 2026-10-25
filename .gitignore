@@ -16,6 +16,7 @@ training/wandb/
 training/**/*.pt
 
 # Editors / OS
+.env
 .vscode/*
 !.vscode/extensions.json
 .idea/
@@ -27,9 +28,5 @@ firmware/**/build/
 *.bin
 *.hex
 *.map
-build/
-install/
-log/
-build/
-install/
-log/
+
+captured_images/
