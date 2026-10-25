@@ -13,6 +13,7 @@
 #include <cmath>
 #include <cstring>
 #include <memory>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -22,6 +23,7 @@
 #include "sensor_msgs/msg/joy.hpp"
 #include "std_msgs/msg/string.hpp"
 
+#include "gamepad_node/keyboard_input.hpp"
 #include "gamepad_node/teleop_mapping.hpp"
 
 namespace
@@ -126,6 +128,7 @@ public:
 
   ~GamepadNode() override
   {
+    stop();
     if (fd_ >= 0) {
       close(fd_);
     }
@@ -135,11 +138,37 @@ public:
     }
   }
 
+  // Called by the context's pre-shutdown hook while the publisher is still valid.
+  // The same lock gates normal output so a racing callback cannot restart motion.
+  void stop() noexcept
+  {
+    std::lock_guard<std::mutex> lock(output_mutex_);
+    if (stopping_) {
+      return;
+    }
+    stopping_ = true;
+    if (!get_node_base_interface()->get_context()->is_valid()) {
+      return;
+    }
+    try {
+      cmd_pub_->publish(geometry_msgs::msg::Twist{});
+      if (!cmd_pub_->wait_for_all_acked(std::chrono::milliseconds(250))) {
+        RCLCPP_WARN(get_logger(), "Timed out waiting for stop command acknowledgement");
+      }
+    } catch (const std::exception & e) {
+      RCLCPP_ERROR(get_logger(), "Could not publish shutdown stop: %s", e.what());
+    }
+  }
+
 private:
   // ---------- Shared output ----------
 
   void publish_velocity(const gt::Velocity & v)
   {
+    std::lock_guard<std::mutex> lock(output_mutex_);
+    if (stopping_) {
+      return;
+    }
     geometry_msgs::msg::Twist twist;  // all other fields stay 0
     twist.linear.x = v.linear_x;
     twist.linear.y = v.linear_y;
@@ -274,47 +303,55 @@ private:
     keyboard_timer_ = create_wall_timer(period, [this]() {keyboard_update();});
   }
 
-  void handle_key(int code, int value)
+  bool read_keyboard_state(gt::KeyState & state)
   {
-    const bool down = (value != 0);  // 1 = press, 2 = auto-repeat, 0 = release
-    const char * name = nullptr;
-    switch (code) {
-      case KEY_W: keys_.forward = down; name = "w"; break;
-      case KEY_S: keys_.back = down; name = "s"; break;
-      case KEY_A: keys_.left = down; name = "a"; break;
-      case KEY_D: keys_.right = down; name = "d"; break;
-      case KEY_LEFT: keys_.turn_left = down; name = "left"; break;
-      case KEY_RIGHT: keys_.turn_right = down; name = "right"; break;
-      default: return;
+    unsigned long bits[(KEY_MAX + kBitsPerLong) / kBitsPerLong] = {0};
+    if (ioctl(fd_, EVIOCGKEY(sizeof(bits)), bits) < 0) {
+      RCLCPP_WARN(get_logger(), "Cannot resynchronize keyboard: %s", std::strerror(errno));
+      return false;
     }
-    if (value == 1) {
-      publish_button_event(name);
-    }
+    state.forward = has_key(bits, KEY_W);
+    state.back = has_key(bits, KEY_S);
+    state.left = has_key(bits, KEY_A);
+    state.right = has_key(bits, KEY_D);
+    state.turn_left = has_key(bits, KEY_LEFT);
+    state.turn_right = has_key(bits, KEY_RIGHT);
+    return true;
   }
 
   void keyboard_update()
   {
     input_event ev;
-    while (true) {
+    while (fd_ >= 0) {
       const ssize_t n = read(fd_, &ev, sizeof(ev));
       if (n == static_cast<ssize_t>(sizeof(ev))) {
-        if (ev.type == EV_KEY) {
-          handle_key(ev.code, ev.value);
+        const char * pressed = keyboard_input_.handle_event(
+          ev, [this](gt::KeyState & state) {return read_keyboard_state(state);});
+        if (pressed) {
+          publish_button_event(pressed);
         }
         continue;
       }
-      if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK && !read_error_) {
-        RCLCPP_ERROR(get_logger(), "Lost keyboard device: %s", std::strerror(errno));
-        read_error_ = true;
-        keys_ = gt::KeyState{};  // fail safe: release everything
+      if (n < 0 && errno == EINTR) {
+        continue;
+      }
+      if (n >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
+        RCLCPP_ERROR(
+          get_logger(), "Lost keyboard device: %s",
+          n < 0 ? std::strerror(errno) : "unexpected end of input");
+        keyboard_input_.reset();
+        close(fd_);
+        fd_ = -1;
       }
       break;
     }
-    publish_velocity(gt::keys_to_velocity(keys_, scales_));
+    publish_velocity(gt::keys_to_velocity(keyboard_input_.keys(), scales_));
   }
 
   // Shared
   gt::ScaleConfig scales_;
+  std::mutex output_mutex_;
+  bool stopping_{false};
   bool print_velocity_{true};
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr btn_pub_;
@@ -335,8 +372,7 @@ private:
 
   // Keyboard
   int fd_{-1};
-  gt::KeyState keys_;
-  bool read_error_{false};
+  gt::KeyboardInput keyboard_input_;
   bool term_changed_{false};
   termios old_term_{};
   rclcpp::TimerBase::SharedPtr keyboard_timer_;
@@ -348,8 +384,17 @@ int main(int argc, char ** argv)
 {
   rclcpp::init(argc, argv);
   int exit_code = 0;
+  std::shared_ptr<GamepadNode> node;
   try {
-    rclcpp::spin(std::make_shared<GamepadNode>());
+    node = std::make_shared<GamepadNode>();
+    const std::weak_ptr<GamepadNode> weak_node = node;
+    node->get_node_base_interface()->get_context()->add_pre_shutdown_callback(
+      [weak_node]() {
+        if (const auto live_node = weak_node.lock()) {
+          live_node->stop();
+        }
+      });
+    rclcpp::spin(node);
   } catch (const std::exception & e) {
     RCLCPP_FATAL(rclcpp::get_logger("gamepad_node"), "%s", e.what());
     exit_code = 1;

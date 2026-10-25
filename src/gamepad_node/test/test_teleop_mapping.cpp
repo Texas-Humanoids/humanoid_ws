@@ -289,4 +289,3 @@ TEST(Validate, RejectsKeyboardScalingOutsideZeroToOne)
   s.keyboard_scaling = -0.1;
   EXPECT_THROW(validate(s), std::invalid_argument);
 }
-

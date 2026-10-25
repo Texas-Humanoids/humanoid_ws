@@ -28,11 +28,26 @@ if(BUILD_TESTING)
   set(ament_cmake_cpplint_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
 
+  # Teach cppcheck the Google Test macros instead of treating them as C++ syntax.
+  list(APPEND AMENT_LINT_AUTO_EXCLUDE ament_cmake_cppcheck)
+  find_package(ament_cmake_cppcheck REQUIRED)
+  ament_cppcheck(LIBRARIES googletest INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
   find_package(ament_cmake_gtest REQUIRED)
   ament_add_gtest(test_teleop_mapping test/test_teleop_mapping.cpp)
   target_include_directories(test_teleop_mapping PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include)
   target_compile_features(test_teleop_mapping PRIVATE cxx_std_17)
+
+  ament_add_gtest(test_keyboard_input test/test_keyboard_input.cpp)
+  target_include_directories(test_keyboard_input PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  target_compile_features(test_keyboard_input PRIVATE cxx_std_17)
+
+  find_package(ament_cmake_pytest REQUIRED)
+  ament_add_pytest_test(test_gamepad_node test/test_gamepad_node.py
+    ENV GAMEPAD_NODE_EXECUTABLE=$<TARGET_FILE:gamepad_node>
+    TIMEOUT 120)
 endif()
 
 ament_package()
