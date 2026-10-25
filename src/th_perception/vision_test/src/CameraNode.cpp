@@ -54,7 +54,17 @@ public:
       throw std::runtime_error("camera open failed");
     }
 
-    RCLCPP_INFO(this->get_logger(), "Opened %s", device.c_str());
+    // Mac cameras default to 1920x1080 (6 MB per image), so ask for the same
+    // size on every OS. The camera may pick the closest size it supports.
+    const int width = this->declare_parameter<int>("width", 640);
+    const int height = this->declare_parameter<int>("height", 480);
+    capture_.set(cv::CAP_PROP_FRAME_WIDTH, width);
+    capture_.set(cv::CAP_PROP_FRAME_HEIGHT, height);
+
+    RCLCPP_INFO(
+      this->get_logger(), "Opened %s at %dx%d", device.c_str(),
+      static_cast<int>(capture_.get(cv::CAP_PROP_FRAME_WIDTH)),
+      static_cast<int>(capture_.get(cv::CAP_PROP_FRAME_HEIGHT)));
 
     output_dir_ =
       this->declare_parameter<std::string>("output_dir", "captured_images");
