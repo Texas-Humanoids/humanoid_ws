@@ -19,6 +19,10 @@ ament_target_dependencies(robstride_motor_node
   std_msgs
 )
 
+target_include_directories(robstride_motor_node PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+)
+
 install(TARGETS robstride_motor_node
   DESTINATION lib/${PROJECT_NAME}
 )
@@ -33,6 +37,12 @@ if(BUILD_TESTING)
   # a copyright and license is added to all source files
   set(ament_cmake_cpplint_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
+
+  find_package(ament_cmake_gtest REQUIRED)
+  ament_add_gtest(test_robstride_motor test/test_robstride_motor.cpp)
+  target_include_directories(test_robstride_motor PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  )
 endif()
 
 ament_package()

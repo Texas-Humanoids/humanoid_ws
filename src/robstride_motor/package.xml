@@ -3,7 +3,7 @@
 <package format="3">
   <name>robstride_motor</name>
   <version>0.0.0</version>
-  <description>ROS 2 single-motor simulation scaffold with position commands and simulated feedback.</description>
+  <description>ROS 2 node for a single RobStride RS06 actuator over SocketCAN, using CSP position control.</description>
   <maintainer email="mehdibenseddik08@gmail.com">Mehdi</maintainer>
   <license>MIT</license>
 

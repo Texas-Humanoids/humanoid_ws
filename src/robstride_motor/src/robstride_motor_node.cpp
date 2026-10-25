@@ -5,6 +5,8 @@
 #include <cstring>
 #include <string>
 #include <array>
+#include <stdexcept>
+#include <map>
 
 #include <net/if.h>
 #include <sys/ioctl.h>
@@ -16,6 +18,9 @@
 
 #include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/float64.hpp"
+#include "robstride_motor/can_protocol.hpp"
+
+using namespace robstride_motor;
 
 namespace
 {
@@ -24,37 +29,11 @@ struct MotorLimits
 {
   double position_min;
   double position_max;
-  double velocity_min;
-  double velocity_max;
-  double torque_min;
-  double torque_max;
-  double kp_min;
-  double kp_max;
-  double kd_min;
-  double kd_max;
 };
 
-const MotorLimits kRS06Limits = {
-  -4.0 * M_PI, 4.0 * M_PI,
-  -50.0, 50.0,
-  -36.0, 36.0,
-  0.0, 5000.0,
-  0.0, 100.0
+const std::map<std::string, MotorLimits> kMotorLimitsByModel = {
+  {"RS06", {-4.0 * M_PI, 4.0 * M_PI}},
 };
-
-constexpr uint8_t kHostCanId = 0xFF;
-constexpr uint8_t kCommTypeEnable = 3;
-constexpr uint8_t kCommTypeStop = 4;
-constexpr uint8_t kCommTypeParamRead = 0x11;
-constexpr uint8_t kCommTypeParamWrite = 0x12;
-
-constexpr uint16_t kParamRunMode = 0x7005;
-constexpr uint16_t kParamLocRef = 0x7016;
-constexpr uint16_t kParamSpeedLimit = 0x7017;
-constexpr uint16_t kParamCurrentLimit = 0x7018;
-constexpr uint16_t kParamMechPos = 0x7019;
-
-constexpr uint8_t kCspRunMode = 5;
 
 }  // namespace
 
@@ -73,13 +52,12 @@ public:
     motor_id_ =
       this->declare_parameter<int64_t>("motor_id");
 
-    if (motor_model_ == "RS06") {
-      motor_limits_ = kRS06Limits;
+    const auto it = kMotorLimitsByModel.find(motor_model_);
+    if (it != kMotorLimitsByModel.end()) {
+      motor_limits_ = it->second;
     } else {
-      RCLCPP_ERROR(
-        this->get_logger(),
-        "Unsupported motor_model '%s'; only RS06 limits are implemented.",
-        motor_model_.c_str());
+      throw std::runtime_error(
+      "Unsupported motor_model '" + motor_model_ + "'; supported models: RS06");
     }
 
     if (open_can_socket()) {
@@ -122,9 +100,9 @@ public:
       this->create_subscription<std_msgs::msg::Float64>(
         "motor/target_position",
         10,
-        [this](std_msgs::msg::Float64::ConstSharedPtr message)
-        {
-          this->on_position_command(message);
+      [this](std_msgs::msg::Float64::ConstSharedPtr message)
+      {
+        this->on_position_command(message);
         });
 
     feedback_timer_ = this->create_wall_timer(
@@ -223,70 +201,40 @@ private:
   void send_enable_frame()
   {
     const uint32_t can_id =
-      (static_cast<uint32_t>(kCommTypeEnable) << 24) |
-      (static_cast<uint32_t>(kHostCanId) << 8) |
-      static_cast<uint32_t>(motor_id_);
-
+      make_can_id(kCommTypeEnable, kHostCanId, static_cast<uint8_t>(motor_id_));
     send_frame(can_id, {0, 0, 0, 0, 0, 0, 0, 0});
   }
 
   void send_stop_frame()
   {
     const uint32_t can_id =
-      (static_cast<uint32_t>(kCommTypeStop) << 24) |
-      (static_cast<uint32_t>(kHostCanId) << 8) |
-      static_cast<uint32_t>(motor_id_);
-
+      make_can_id(kCommTypeStop, kHostCanId, static_cast<uint8_t>(motor_id_));
     send_frame(can_id, {0, 0, 0, 0, 0, 0, 0, 0});
   }
 
   void write_param_u8(uint16_t index, uint8_t value)
   {
     const uint32_t can_id =
-      (static_cast<uint32_t>(kCommTypeParamWrite) << 24) |
-      (static_cast<uint32_t>(kHostCanId) << 8) |
-      static_cast<uint32_t>(motor_id_);
-
-    std::array<uint8_t, 8> data = {0, 0, 0, 0, 0, 0, 0, 0};
-    data[0] = static_cast<uint8_t>(index & 0xFF);
-    data[1] = static_cast<uint8_t>((index >> 8) & 0xFF);
-    data[4] = value;
-
-    send_frame(can_id, data);
+      make_can_id(kCommTypeParamWrite, kHostCanId, static_cast<uint8_t>(motor_id_));
+    send_frame(can_id, encode_param_u8(index, value));
   }
 
   void write_param_float(uint16_t index, float value)
   {
     const uint32_t can_id =
-      (static_cast<uint32_t>(kCommTypeParamWrite) << 24) |
-      (static_cast<uint32_t>(kHostCanId) << 8) |
-      static_cast<uint32_t>(motor_id_);
-
-    std::array<uint8_t, 8> data = {0, 0, 0, 0, 0, 0, 0, 0};
-    data[0] = static_cast<uint8_t>(index & 0xFF);
-    data[1] = static_cast<uint8_t>((index >> 8) & 0xFF);
-
-    uint32_t bits;
-    std::memcpy(&bits, &value, sizeof(bits));
-    data[4] = static_cast<uint8_t>(bits & 0xFF);
-    data[5] = static_cast<uint8_t>((bits >> 8) & 0xFF);
-    data[6] = static_cast<uint8_t>((bits >> 16) & 0xFF);
-    data[7] = static_cast<uint8_t>((bits >> 24) & 0xFF);
-
-    send_frame(can_id, data);
+      make_can_id(kCommTypeParamWrite, kHostCanId, static_cast<uint8_t>(motor_id_));
+    send_frame(can_id, encode_param_float(index, value));
   }
 
   bool read_param_float(uint16_t index, float & out_value)
   {
-    const uint32_t can_id =
-      (static_cast<uint32_t>(kCommTypeParamRead) << 24) |
-      (static_cast<uint32_t>(kHostCanId) << 8) |
-      static_cast<uint32_t>(motor_id_);
+    if (can_socket_ < 0) {
+      return false;
+    }
 
-    std::array<uint8_t, 8> request = {0, 0, 0, 0, 0, 0, 0, 0};
-    request[0] = static_cast<uint8_t>(index & 0xFF);
-    request[1] = static_cast<uint8_t>((index >> 8) & 0xFF);
-    send_frame(can_id, request);
+    const uint32_t can_id =
+      make_can_id(kCommTypeParamRead, kHostCanId, static_cast<uint8_t>(motor_id_));
+    send_frame(can_id, encode_param_index(index));
 
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(200);
     struct can_frame reply;
@@ -302,10 +250,10 @@ private:
         continue;
       }
 
-      const uint16_t reply_index =
-        static_cast<uint16_t>(reply.data[0]) |
-        (static_cast<uint16_t>(reply.data[1]) << 8);
-      if (reply_index != index) {
+      std::array<uint8_t, 8> reply_data;
+      std::memcpy(reply_data.data(), reply.data, 8);
+
+      if (decode_param_index(reply_data) != index) {
         continue;
       }
 
@@ -314,12 +262,7 @@ private:
         continue;
       }
 
-      uint32_t bits =
-        static_cast<uint32_t>(reply.data[4]) |
-        (static_cast<uint32_t>(reply.data[5]) << 8) |
-        (static_cast<uint32_t>(reply.data[6]) << 16) |
-        (static_cast<uint32_t>(reply.data[7]) << 24);
-      std::memcpy(&out_value, &bits, sizeof(out_value));
+      out_value = decode_param_float(reply_data);
       return true;
     }
 
@@ -352,11 +295,8 @@ private:
       return;
     }
 
-    double target = message->data;
-    if (target < motor_limits_.position_min) { target = motor_limits_.position_min; }
-    if (target > motor_limits_.position_max) { target = motor_limits_.position_max; }
-
-    target_position_ = target;
+    target_position_ = clamp_position(
+      message->data, motor_limits_.position_min, motor_limits_.position_max);
     write_param_float(kParamLocRef, static_cast<float>(target_position_));
 
     RCLCPP_INFO(
@@ -370,11 +310,14 @@ int main(int argc, char * argv[])
 {
   rclcpp::init(argc, argv);
 
-  auto node = std::make_shared<RobstrideMotorNode>();
-  rclcpp::spin(node);
+  try {
+    auto node = std::make_shared<RobstrideMotorNode>();
+    rclcpp::spin(node);
+    node->stop();
+  } catch (const std::exception & e) {
+    RCLCPP_FATAL(rclcpp::get_logger("robstride_motor_node"), "Startup failed: %s", e.what());
+  }
 
-  node->stop();
   rclcpp::shutdown();
-
   return 0;
 }
