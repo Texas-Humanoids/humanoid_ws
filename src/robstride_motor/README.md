@@ -45,7 +45,13 @@ If the node logs `Could not read starting position from motor X; refusing to ena
 
 Requires `can-utils` (`candump`/`cansend`) and the node **not** running (it shares `can0`).
 
-Watch for replies in one terminal:
+The quick way is the bundled script. It is read-only (it only sends the Get Device ID request, never enables or configures anything) and prints every motor that answers:
+```bash
+src/robstride_motor/scripts/find_motor_id.sh can0
+```
+Then pass the ID you want explicitly as `-p motor_id:=<id>`. The node deliberately never auto-selects an ID, so it can't silently command the wrong motor.
+
+To do it by hand, or see what the script does, watch for replies in one terminal:
 ```bash
 candump can0
 ```
@@ -113,13 +119,25 @@ RobStride's protocol packs a 29-bit extended CAN ID as: 5-bit comm type (bits 28
 
 From then on, every new value published to `motor/target_position` is just written directly to `loc_ref` — the motor's own internal position-control loop (with factory-tuned gains we never touch) handles actually getting there smoothly. We do **not** send raw torque/Kp/Kd values ourselves (that's a different scheme, "MIT mode," which we tried first and abandoned — CSP mode is what RobStride's own verified working scripts use, and switching to it is what fixed the motor only weakly rumbling instead of actually tracking commanded positions).
 
-## Multi-motor setups (not yet built, but straightforward)
+## Multi-motor setups
 
 This node drives exactly one motor per instance. For multiple motors, run one instance per motor with a distinct `motor_id`, each in its own ROS namespace so topics don't collide:
 ```bash
-ros2 run robstride_motor robstride_motor_node --ros-args -r __ns:=/left_arm -p motor_id:=127 -p can_interface:=can0
-ros2 run robstride_motor robstride_motor_node --ros-args -r __ns:=/right_arm -p motor_id:=5 -p can_interface:=can0
+ros2 run robstride_motor robstride_motor_node --ros-args -r __ns:=/left_arm -p motor_id:=1 -p can_interface:=can0
+ros2 run robstride_motor robstride_motor_node --ros-args -r __ns:=/right_arm -p motor_id:=2 -p can_interface:=can0
 ```
+Verified on hardware with two RS06 motors (IDs 1 and 2) on one `can0`: each node reported only its own motor's position, and a command to one moved only that motor.
+
+A **namespace** is a prefix ROS 2 adds to a node's topic names, like a folder path. The node's topics are relative (`motor/target_position`, `motor/actual_position`), so `-r __ns:=/left_arm` turns them into:
+
+| Namespace | Command topic | Feedback topic |
+|---|---|---|
+| none | `/motor/target_position` | `/motor/actual_position` |
+| `/left_arm` | `/left_arm/motor/target_position` | `/left_arm/motor/actual_position` |
+| `/right_arm` | `/right_arm/motor/target_position` | `/right_arm/motor/actual_position` |
+
+Without namespaces, two nodes would share the same topics and each would receive the other's commands. Publish to the namespaced topic, e.g. `ros2 topic pub --once /right_arm/motor/target_position std_msgs/msg/Float64 "{data: 0.3}"`.
+
 Multiple nodes can safely share the same physical `can0` socket — SocketCAN isn't exclusive, and every node filters replies by checking the responding motor's own ID before trusting them. Whether multiple motors on one limb/bus should eventually be coordinated by a single combined node instead (for synchronized multi-joint motion) is an open design question, not yet decided.
 
 ## Testing
@@ -133,7 +151,7 @@ Unit tests cover CAN ID packing and parameter encode/decode against real capture
 ## Troubleshooting
 
 - **`Could not open CAN socket on 'can0'`** — the interface doesn't exist or isn't visible to this environment. Check `ip link show` on the host, and `ls /sys/class/net/` inside the container.
-- **`Could not read starting position from motor X; refusing to enable`** — the socket opened, but nothing answered. Check: is the motor actually powered? Is the ground wire connected? Run `candump can0` in parallel to see whether request frames are going out with no reply at all (the motor isn't there, or is at a different ID — see [Find the motor ID](#find-the-motor-id-if-unknown-or-unresponsive)) versus going out and visibly tripping transmit errors (`ip -details link show can0` — look for `ERROR-PASSIVE` or `bus-off`).
+- **`Could not read starting position from motor X; refusing to enable`** — the socket opened, but nothing answered. First confirm the motor is actually at the ID you're using — see [Find the motor ID](#find-the-motor-id-if-unknown-or-unresponsive); this was the root cause the one time we hit it (assumed ID `127`, motor was really at `1`). If the ID is right, check: is the motor actually powered? Is the ground wire connected? Run `candump can0` in parallel to see whether request frames are going out with no reply at all (the motor isn't there, or is at a different ID — see [Find the motor ID](#find-the-motor-id-if-unknown-or-unresponsive)) versus going out and visibly tripping transmit errors (`ip -details link show can0` — look for `ERROR-PASSIVE` or `bus-off`).
 - **`CAN write failed`, repeating** — the CAN controller has likely gone bus-off/error-passive from unacknowledged transmits (nothing on the bus is responding). Reset with `sudo ip link set can0 down && sudo ip link set can0 up type can bitrate 1000000`, but this won't stay fixed unless the underlying wiring/power issue is also resolved.
 
 ## Known limitations
