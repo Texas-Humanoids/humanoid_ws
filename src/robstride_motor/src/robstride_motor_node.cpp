@@ -40,8 +40,8 @@ const std::map<std::string, MotorLimits> kMotorLimitsByModel = {
 class RobstrideMotorNode : public rclcpp::Node
 {
 public:
-  RobstrideMotorNode()
-  : rclcpp::Node("robstride_motor_node")
+  explicit RobstrideMotorNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions())
+  : rclcpp::Node("robstride_motor_node", options)
   {
     can_interface_ =
       this->declare_parameter<std::string>("can_interface", "can0");
@@ -51,6 +51,9 @@ public:
 
     motor_id_ =
       this->declare_parameter<int64_t>("motor_id");
+    if (motor_id_ < 0 || motor_id_ > 127) {
+      throw std::invalid_argument("motor_id must be in the range 0..127");
+    }
 
     const auto it = kMotorLimitsByModel.find(motor_model_);
     if (it != kMotorLimitsByModel.end()) {
@@ -58,38 +61,6 @@ public:
     } else {
       throw std::runtime_error(
       "Unsupported motor_model '" + motor_model_ + "'; supported models: RS06");
-    }
-
-    if (open_can_socket()) {
-      send_stop_frame();
-
-      write_param_u8(kParamRunMode, kCspRunMode);
-      write_param_float(kParamSpeedLimit, 1.0f);
-      write_param_float(kParamCurrentLimit, 3.0f);
-
-      float current_position = 0.0f;
-      if (read_param_float(kParamMechPos, current_position)) {
-        target_position_ = current_position;
-        write_param_float(kParamLocRef, target_position_);
-        send_enable_frame();
-
-        RCLCPP_WARN(
-          this->get_logger(),
-          "Sending real CAN commands to motor %ld on %s (CSP mode). Starting position: %.3f rad.",
-          static_cast<long>(motor_id_),
-          can_interface_.c_str(),
-          target_position_);
-      } else {
-        RCLCPP_ERROR(
-          this->get_logger(),
-          "Could not read starting position from motor %ld; refusing to enable.",
-          static_cast<long>(motor_id_));
-      }
-    } else {
-      RCLCPP_ERROR(
-        this->get_logger(),
-        "Could not open CAN socket on '%s'. Commands will not reach the motor.",
-        can_interface_.c_str());
     }
 
     actual_position_publisher_ =
@@ -111,24 +82,69 @@ public:
       {
         this->poll_feedback();
       });
+
+    try {
+      if (!open_can_socket()) {
+        throw std::runtime_error("Could not open CAN socket on '" + can_interface_ + "'");
+      }
+
+      if (!send_stop_frame() ||
+        !write_param_u8(kParamRunMode, kCspRunMode) ||
+        !write_param_float(kParamSpeedLimit, 1.0f) ||
+        !write_param_float(kParamCurrentLimit, 3.0f))
+      {
+        throw std::runtime_error("CAN configuration write failed; refusing to enable");
+      }
+
+      float current_position = 0.0f;
+      if (!read_param_float(kParamMechPos, current_position) ||
+        !std::isfinite(current_position))
+      {
+        throw std::runtime_error("Could not read a finite starting position; refusing to enable");
+      }
+
+      target_position_ = current_position;
+      if (!write_param_float(kParamLocRef, current_position) || !send_enable_frame()) {
+        throw std::runtime_error("CAN startup write failed; refusing to continue");
+      }
+
+      RCLCPP_WARN(
+        this->get_logger(),
+        "Sending real CAN commands to motor %ld on %s (CSP mode). Starting position: %.3f rad.",
+        static_cast<long>(motor_id_), can_interface_.c_str(), target_position_);
+    } catch (...) {
+      // A failed constructor does not invoke this class's destructor.
+      close_can_socket();
+      throw;
+    }
+  }
+
+  ~RobstrideMotorNode() override
+  {
+    close_can_socket();
   }
 
   void stop()
   {
     feedback_timer_->cancel();
-
-    if (can_socket_ >= 0) {
-      send_stop_frame();
-      close(can_socket_);
-      can_socket_ = -1;
-    }
-
-    RCLCPP_INFO(
-      this->get_logger(),
-      "Sent stop command to the motor and closed the CAN socket.");
+    close_can_socket();
   }
 
 private:
+  void close_can_socket() noexcept
+  {
+    if (can_socket_ >= 0) {
+      // Keep cleanup independent of ROS logging and other throwing operations.
+      struct can_frame frame{};
+      frame.can_id =
+        make_can_id(kCommTypeStop, kHostCanId, static_cast<uint8_t>(motor_id_)) | CAN_EFF_FLAG;
+      frame.can_dlc = 8;
+      (void)write(can_socket_, &frame, sizeof(frame));
+      close(can_socket_);
+      can_socket_ = -1;
+    }
+  }
+
   std::string can_interface_;
   std::string motor_model_;
   int64_t motor_id_;
@@ -182,10 +198,10 @@ private:
     return true;
   }
 
-  void send_frame(uint32_t can_id, const std::array<uint8_t, 8> & data)
+  bool send_frame(uint32_t can_id, const std::array<uint8_t, 8> & data)
   {
     if (can_socket_ < 0) {
-      return;
+      return false;
     }
 
     struct can_frame frame;
@@ -195,35 +211,37 @@ private:
 
     if (write(can_socket_, &frame, sizeof(frame)) != static_cast<ssize_t>(sizeof(frame))) {
       RCLCPP_WARN(this->get_logger(), "CAN write failed.");
+      return false;
     }
+    return true;
   }
 
-  void send_enable_frame()
+  bool send_enable_frame()
   {
     const uint32_t can_id =
       make_can_id(kCommTypeEnable, kHostCanId, static_cast<uint8_t>(motor_id_));
-    send_frame(can_id, {0, 0, 0, 0, 0, 0, 0, 0});
+    return send_frame(can_id, {0, 0, 0, 0, 0, 0, 0, 0});
   }
 
-  void send_stop_frame()
+  bool send_stop_frame()
   {
     const uint32_t can_id =
       make_can_id(kCommTypeStop, kHostCanId, static_cast<uint8_t>(motor_id_));
-    send_frame(can_id, {0, 0, 0, 0, 0, 0, 0, 0});
+    return send_frame(can_id, {0, 0, 0, 0, 0, 0, 0, 0});
   }
 
-  void write_param_u8(uint16_t index, uint8_t value)
+  bool write_param_u8(uint16_t index, uint8_t value)
   {
     const uint32_t can_id =
       make_can_id(kCommTypeParamWrite, kHostCanId, static_cast<uint8_t>(motor_id_));
-    send_frame(can_id, encode_param_u8(index, value));
+    return send_frame(can_id, encode_param_u8(index, value));
   }
 
-  void write_param_float(uint16_t index, float value)
+  bool write_param_float(uint16_t index, float value)
   {
     const uint32_t can_id =
       make_can_id(kCommTypeParamWrite, kHostCanId, static_cast<uint8_t>(motor_id_));
-    send_frame(can_id, encode_param_float(index, value));
+    return send_frame(can_id, encode_param_float(index, value));
   }
 
   bool read_param_float(uint16_t index, float & out_value)
@@ -234,7 +252,9 @@ private:
 
     const uint32_t can_id =
       make_can_id(kCommTypeParamRead, kHostCanId, static_cast<uint8_t>(motor_id_));
-    send_frame(can_id, encode_param_index(index));
+    if (!send_frame(can_id, encode_param_index(index))) {
+      return false;
+    }
 
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(200);
     struct can_frame reply;
@@ -297,7 +317,9 @@ private:
 
     target_position_ = clamp_position(
       message->data, motor_limits_.position_min, motor_limits_.position_max);
-    write_param_float(kParamLocRef, static_cast<float>(target_position_));
+    if (!write_param_float(kParamLocRef, static_cast<float>(target_position_))) {
+      return;
+    }
 
     RCLCPP_INFO(
       this->get_logger(),
@@ -315,7 +337,9 @@ int main(int argc, char * argv[])
     rclcpp::spin(node);
     node->stop();
   } catch (const std::exception & e) {
-    RCLCPP_FATAL(rclcpp::get_logger("robstride_motor_node"), "Startup failed: %s", e.what());
+    RCLCPP_FATAL(rclcpp::get_logger("robstride_motor_node"), "Motor node failed: %s", e.what());
+    rclcpp::shutdown();
+    return 1;
   }
 
   rclcpp::shutdown();

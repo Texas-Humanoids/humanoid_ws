@@ -41,7 +41,7 @@ Two gotchas we hit repeatedly:
 
 ### Find the motor ID (if unknown or unresponsive)
 
-If the node logs `Could not read starting position from motor X; refusing to enable`, the motor may not actually be at the ID you're assuming — ours turned out to be configured to `1`, not the `127` we initially assumed from the actuator team.
+If the node logs `Could not read a finite starting position; refusing to enable`, the motor may not actually be at the ID you're assuming — ours turned out to be configured to `1`, not the `127` we initially assumed from the actuator team.
 
 Requires `can-utils` (`candump`/`cansend`) and the node **not** running (it shares `can0`).
 
@@ -88,7 +88,7 @@ ros2 run robstride_motor robstride_motor_node --ros-args \
   -p motor_model:=RS06
 ```
 
-`motor_id` has **no default** — it must be supplied, or the node will throw on startup rather than silently commanding the wrong device. `can_interface` defaults to `can0`; `motor_model` defaults to `RS06`. Supported models are looked up from a table in the node — currently only `RS06` has a verified entry, so anything else causes the node to refuse to start at launch.
+`motor_id` must be in **0–127** and has **no default** — it must be supplied, or the node will throw on startup rather than silently commanding the wrong device. `can_interface` defaults to `can0`; `motor_model` defaults to `RS06`. Supported models are looked up from a table in the node — currently only `RS06` has a verified entry, so anything else causes the node to refuse to start at launch.
 
 ## Topics
 
@@ -116,6 +116,8 @@ RobStride's protocol packs a 29-bit extended CAN ID as: 5-bit comm type (bits 28
 4. **Read the motor's actual current position** (parameter `0x7019`, "mechPos", comm type `0x11` request / response).
 5. **Write that same value back as the initial position target** (parameter `0x7016`, "loc_ref"). This step is critical — skip it, and the motor can jump violently toward whatever stale target it had stored from a previous session the instant it's enabled.
 6. **Enable** the motor (comm type `3`).
+
+If a startup CAN write fails or the starting position cannot be read as a finite value, the node attempts a stop, closes the socket, and exits with an error. Successful socket writes only confirm local transmission acceptance; they do not acknowledge that the motor applied the configuration. Normal shutdown and exception unwinding also attempt a stop before closing the socket.
 
 From then on, every new value published to `motor/target_position` is just written directly to `loc_ref` — the motor's own internal position-control loop (with factory-tuned gains we never touch) handles actually getting there smoothly. We do **not** send raw torque/Kp/Kd values ourselves (that's a different scheme, "MIT mode," which we tried first and abandoned — CSP mode is what RobStride's own verified working scripts use, and switching to it is what fixed the motor only weakly rumbling instead of actually tracking commanded positions).
 
@@ -146,12 +148,12 @@ Multiple nodes can safely share the same physical `can0` socket — SocketCAN is
 colcon test --packages-select robstride_motor
 colcon test-result --verbose
 ```
-Unit tests cover CAN ID packing and parameter encode/decode against real captured byte values, plus position clamping — see `test/test_robstride_motor.cpp`.
+Unit tests cover CAN ID packing and parameter encode/decode against real captured byte values, plus position clamping — see `test/test_robstride_motor.cpp`. Node safety tests exercise invalid IDs, every startup write failure, non-finite starting positions, and cleanup during exceptions using a fake CAN transport. The discovery script is also tested with mocked CAN utilities and the system default awk.
 
 ## Troubleshooting
 
 - **`Could not open CAN socket on 'can0'`** — the interface doesn't exist or isn't visible to this environment. Check `ip link show` on the host, and `ls /sys/class/net/` inside the container.
-- **`Could not read starting position from motor X; refusing to enable`** — the socket opened, but nothing answered. First confirm the motor is actually at the ID you're using — see [Find the motor ID](#find-the-motor-id-if-unknown-or-unresponsive); this was the root cause the one time we hit it (assumed ID `127`, motor was really at `1`). If the ID is right, check: is the motor actually powered? Is the ground wire connected? Run `candump can0` in parallel to see whether request frames are going out with no reply at all (the motor isn't there, or is at a different ID — see [Find the motor ID](#find-the-motor-id-if-unknown-or-unresponsive)) versus going out and visibly tripping transmit errors (`ip -details link show can0` — look for `ERROR-PASSIVE` or `bus-off`).
+- **`Could not read a finite starting position; refusing to enable`** — the socket opened, but nothing answered. First confirm the motor is actually at the ID you're using — see [Find the motor ID](#find-the-motor-id-if-unknown-or-unresponsive); this was the root cause the one time we hit it (assumed ID `127`, motor was really at `1`). If the ID is right, check: is the motor actually powered? Is the ground wire connected? Run `candump can0` in parallel to see whether request frames are going out with no reply at all (the motor isn't there, or is at a different ID — see [Find the motor ID](#find-the-motor-id-if-unknown-or-unresponsive)) versus going out and visibly tripping transmit errors (`ip -details link show can0` — look for `ERROR-PASSIVE` or `bus-off`).
 - **`CAN write failed`, repeating** — the CAN controller has likely gone bus-off/error-passive from unacknowledged transmits (nothing on the bus is responding). Reset with `sudo ip link set can0 down && sudo ip link set can0 up type can bitrate 1000000`, but this won't stay fixed unless the underlying wiring/power issue is also resolved.
 
 ## Known limitations

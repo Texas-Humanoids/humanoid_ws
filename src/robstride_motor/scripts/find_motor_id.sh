@@ -24,11 +24,19 @@ sleep 0.3
 
 # Replies look like `(ts) can0 000001FE#6E453B4E20713 00B`: comm type 0,
 # responding motor ID in bits 8-15, destination 0xFE, non-zero UUID payload.
-found=$(awk '{
+found=$(awk '
+  function hex_byte(value, digits, high, low) {
+    digits = "0123456789ABCDEF"
+    value = toupper(value)
+    high = index(digits, substr(value, 1, 1)) - 1
+    low = index(digits, substr(value, 2, 1)) - 1
+    return high * 16 + low
+  }
+{
   split($3, f, "#")
   if (length(f[1]) == 8 && substr(f[1], 1, 2) == "00" && substr(f[1], 7, 2) == "FE" \
       && f[2] !~ /^0+$/)
-    print strtonum("0x" substr(f[1], 5, 2)) " (uuid " f[2] ")"
+    print hex_byte(substr(f[1], 5, 2)) " (uuid " f[2] ")"
 }' "$log" | sort -un)
 
 if [ -z "$found" ]; then

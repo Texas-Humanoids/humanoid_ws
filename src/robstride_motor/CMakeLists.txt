@@ -43,6 +43,17 @@ if(BUILD_TESTING)
   target_include_directories(test_robstride_motor PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   )
+
+  ament_add_gtest(test_node_safety test/test_node_safety.cpp)
+  ament_target_dependencies(test_node_safety rclcpp std_msgs)
+  target_include_directories(test_node_safety PRIVATE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  )
+  ament_add_test(test_find_motor_id
+    COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/test/test_find_motor_id.sh"
+    GENERATE_RESULT_FOR_RETURN_CODE_ZERO
+    TIMEOUT 30
+  )
 endif()
 
 ament_package()
