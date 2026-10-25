@@ -11,6 +11,7 @@ Use Ubuntu 24.04 with ROS 2 Jazzy and the ONNX Runtime **C++ SDK 1.22.0**.
 The CPU and GPU Dockerfiles install that SDK at `/opt/onnxruntime`. For a local
 install, point `CMAKE_PREFIX_PATH` at the SDK directory and make its `lib`
 directory visible to the dynamic linker.
+Docker builds select the x64 or aarch64 SDK from the target architecture.
 
 From the workspace root:
 
@@ -69,6 +70,8 @@ synthetic observations through the installed C++ node and compares all 22
 outputs with independent inference from the same
 checkpoint. It also checks that invalid observations produce no targets.
 Its isolated ROS domain and topics keep the check off the motor interface.
+After invalid inputs, it also sends a valid observation to confirm the node
+is still running and producing the expected targets.
 
 Earlier validation of the Python prototype passed 11 boundary tests and a
 MuJoCo diagnostic. The diagnostic drove changing simulated joint state over

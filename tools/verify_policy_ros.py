@@ -119,10 +119,24 @@ def main():
                     publisher.publish(Float32MultiArray(data=bad))
                     deadline = time.monotonic() + 0.3
                     while time.monotonic() < deadline:
+                        if process.poll() is not None:
+                            raise RuntimeError("Policy node exited after invalid observation")
                         rclpy.spin_once(node, timeout_sec=0.05)
                     if received:
                         raise AssertionError("Invalid observation produced joint targets")
-                print("PASS invalid observations: no targets published")
+                if process.poll() is not None:
+                    raise RuntimeError("Policy node exited after invalid observations")
+                received.clear()
+                publisher.publish(Float32MultiArray(data=observation.tolist()))
+                wait_until(lambda: bool(received), "No targets after invalid observations.")
+                message = received[0]
+                if list(message.name) != profile["joint_names"]:
+                    raise AssertionError("Joint order changed after invalid observations")
+                actual = np.asarray(message.position)
+                if actual.shape != (22,) or not np.isfinite(actual).all():
+                    raise AssertionError("Invalid targets after invalid observations")
+                np.testing.assert_allclose(actual, expected, rtol=1e-5, atol=1e-6)
+                print("PASS invalid observations: no targets published; node still responds")
                 report["passed"] = True
                 args.output.write_text(json.dumps(report, indent=2) + "\n")
                 print(f"Saved {args.output}")
