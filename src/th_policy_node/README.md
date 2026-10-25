@@ -18,6 +18,8 @@ From the workspace root:
 source /opt/ros/jazzy/setup.bash
 python3 tools/fetch_berkeley_policy.py
 colcon build --packages-select th_policy_node
+colcon test --packages-select th_policy_node
+colcon test-result --verbose
 source install/setup.bash
 ros2 run th_policy_node policy_node --ros-args \
   --params-file src/th_policy_node/config/policy_humanoid.yaml
@@ -61,8 +63,10 @@ virtual environment. Then run:
 python3 tools/verify_policy_ros.py
 ```
 
-The script publishes three synthetic observations through the installed C++
-node and compares all 22 outputs with independent inference from the same
+The five Google Test cases cover model tensor shapes, action clipping and
+scaling, invalid values, and target overflow. The ROS script publishes three
+synthetic observations through the installed C++ node and compares all 22
+outputs with independent inference from the same
 checkpoint. It also checks that invalid observations produce no targets.
 Its isolated ROS domain and topics keep the check off the motor interface.
 
@@ -70,7 +74,8 @@ Earlier validation of the Python prototype passed 11 boundary tests and a
 MuJoCo diagnostic. The diagnostic drove changing simulated joint state over
 25 policy steps, but at least one target exceeded model joint limits on every
 step. Those prototype results do not validate physical walking. The C++
-version's repeatable ROS/model check above is the current acceptance check.
+version's Google Tests and repeatable ROS/model check above are the current
+acceptance checks.
 
 ## Integration boundary
 

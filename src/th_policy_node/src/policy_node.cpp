@@ -13,6 +13,7 @@
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
 #include "std_msgs/msg/float32_multi_array.hpp"
+#include "th_policy_node/policy_profile.hpp"
 
 class PolicyNode : public rclcpp::Node
 {
@@ -70,8 +71,10 @@ public:
     {
       throw std::invalid_argument("Policy input and output must be float32 tensors");
     }
-    input_shape_ = validate_shape(input_info.GetShape(), observation_size_, "input");
-    validate_shape(output_info.GetShape(), joint_names_.size(), "output");
+    input_shape_ = th_policy_node::validate_vector_shape(
+      input_info.GetShape(), observation_size_, "input");
+    th_policy_node::validate_vector_shape(
+      output_info.GetShape(), joint_names_.size(), "output");
     Ort::AllocatorWithDefaultOptions allocator;
     input_name_ = session_.GetInputNameAllocated(0, allocator).get();
     output_name_ = session_.GetOutputNameAllocated(0, allocator).get();
@@ -86,19 +89,6 @@ public:
   }
 
 private:
-  static std::vector<int64_t> validate_shape(
-    const std::vector<int64_t> & shape, size_t width, const char * label)
-  {
-    if ((shape.size() != 1 && shape.size() != 2) ||
-      (shape.size() == 2 && shape[0] != 1 && shape[0] != -1) ||
-      shape.back() != static_cast<int64_t>(width))
-    {
-      throw std::invalid_argument(std::string("Unexpected policy ") + label + " shape");
-    }
-    return shape.size() == 1 ? std::vector<int64_t>{static_cast<int64_t>(width)} :
-           std::vector<int64_t>{1, static_cast<int64_t>(width)};
-  }
-
   void on_observation(const std_msgs::msg::Float32MultiArray::SharedPtr message)
   {
     if (message->data.size() != observation_size_ ||
@@ -127,18 +117,9 @@ private:
       sensor_msgs::msg::JointState targets;
       targets.header.stamp = now();
       targets.name = joint_names_;
-      targets.position.reserve(joint_names_.size());
-      for (size_t i = 0; i < joint_names_.size(); ++i) {
-        if (!std::isfinite(actions[i])) {
-          throw std::runtime_error("Policy returned a non-finite action");
-        }
-        const double target = default_positions_[i] + action_scale_ *
-          std::clamp(static_cast<double>(actions[i]), action_lower_, action_upper_);
-        if (!std::isfinite(target)) {
-          throw std::runtime_error("Policy computed a non-finite target");
-        }
-        targets.position.push_back(target);
-      }
+      targets.position = th_policy_node::scale_actions(
+        actions, joint_names_.size(), default_positions_,
+        action_scale_, action_lower_, action_upper_);
       publisher_->publish(targets);
     } catch (const std::exception & error) {
       RCLCPP_ERROR(get_logger(), "Policy inference failed: %s", error.what());
