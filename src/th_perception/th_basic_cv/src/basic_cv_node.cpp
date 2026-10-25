@@ -3,6 +3,7 @@
 #include <chrono>
 #include <exception>
 #include <memory>
+#include <string>
 
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/image.hpp"
@@ -47,10 +48,14 @@ private:
       edges_pub_->publish(th_basic_cv::to_image_msg(result.edges, msg.header));
       annotated_pub_->publish(th_basic_cv::to_image_msg(result.annotated, msg.header));
 
+      std::string labels;
+      for (const auto & detection : result.detections) {
+        labels += (labels.empty() ? ": " : ", ") + detection.color + " " + detection.shape;
+      }
       RCLCPP_INFO_THROTTLE(
         get_logger(), *get_clock(), 1000,
-        "%zu objects, mean brightness %.1f, processed in %.1f ms",
-        result.detections.size(), result.mean_brightness, ms);
+        "%zu objects%s (mean brightness %.1f, %.1f ms)",
+        result.detections.size(), labels.c_str(), result.mean_brightness, ms);
     } catch (const std::exception & e) {
       RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000, "Skipping frame: %s", e.what());
     }

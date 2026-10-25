@@ -2,8 +2,10 @@
 
 #include <gtest/gtest.h>
 
+#include <set>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
@@ -17,6 +19,32 @@ namespace
 cv::Mat blank(uint8_t value = 230)
 {
   return cv::Mat(240, 320, CV_8UC3, cv::Scalar(value, value, value));
+}
+
+// "color shape" for every detection, order-independent.
+std::multiset<std::string> labels(const th_basic_cv::PipelineResult & result)
+{
+  std::multiset<std::string> out;
+  for (const auto & detection : result.detections) {
+    out.insert(detection.color + " " + detection.shape);
+  }
+  return out;
+}
+
+std::multiset<std::string> colors(const th_basic_cv::PipelineResult & result)
+{
+  std::multiset<std::string> out;
+  for (const auto & detection : result.detections) {
+    out.insert(detection.color);
+  }
+  return out;
+}
+
+std::vector<cv::Point> circle_points(cv::Point center, int radius)
+{
+  std::vector<cv::Point> points;
+  cv::ellipse2Poly(center, cv::Size(radius, radius), 0, 0, 360, 2, points);
+  return points;
 }
 
 }  // namespace
@@ -75,6 +103,122 @@ TEST(SampleImages, ShapesAndBlocksGiveExpectedCounts)
   const th_basic_cv::PipelineParams params;
   EXPECT_EQ(th_basic_cv::run_pipeline(shapes, params).detections.size(), 3u);
   EXPECT_EQ(th_basic_cv::run_pipeline(blocks, params).detections.size(), 5u);
+}
+
+TEST(SampleImages, ShapesAndColorsAreLabeled)
+{
+  const std::string dir = SAMPLE_IMAGE_DIR;
+  const th_basic_cv::PipelineParams params;
+
+  const auto shapes = th_basic_cv::run_pipeline(
+    cv::imread(dir + "/01_shapes.png", cv::IMREAD_COLOR), params);
+  EXPECT_EQ(
+    labels(shapes),
+    (std::multiset<std::string>{"red rectangle", "blue circle", "green triangle"}));
+
+  const auto blocks = th_basic_cv::run_pipeline(
+    cv::imread(dir + "/02_blocks.jpg", cv::IMREAD_COLOR), params);
+  EXPECT_EQ(
+    colors(blocks),
+    (std::multiset<std::string>{"red", "blue", "yellow", "green", "purple"}));
+}
+
+TEST(Shape, Triangle)
+{
+  EXPECT_EQ(th_basic_cv::classify_shape({{10, 10}, {110, 10}, {60, 100}}), "triangle");
+}
+
+TEST(Shape, SquareAndRectangle)
+{
+  EXPECT_EQ(th_basic_cv::classify_shape({{0, 0}, {100, 0}, {100, 100}, {0, 100}}), "square");
+  EXPECT_EQ(th_basic_cv::classify_shape({{0, 0}, {200, 0}, {200, 80}, {0, 80}}), "rectangle");
+}
+
+TEST(Shape, RotatedSquareIsStillASquare)
+{
+  EXPECT_EQ(th_basic_cv::classify_shape({{50, 0}, {100, 50}, {50, 100}, {0, 50}}), "square");
+}
+
+TEST(Shape, Circle)
+{
+  EXPECT_EQ(th_basic_cv::classify_shape(circle_points({100, 100}, 60)), "circle");
+}
+
+TEST(Shape, OtherOutlinesArePolygons)
+{
+  // An L shape: six corners and far from round.
+  EXPECT_EQ(
+    th_basic_cv::classify_shape({{0, 0}, {40, 0}, {40, 120}, {120, 120}, {120, 160}, {0, 160}}),
+    "polygon");
+}
+
+TEST(Color, NamesHues)
+{
+  // cv::Scalar is BGR.
+  EXPECT_EQ(th_basic_cv::name_color(cv::Scalar(30, 30, 220)), "red");
+  EXPECT_EQ(th_basic_cv::name_color(cv::Scalar(0, 140, 255)), "orange");
+  EXPECT_EQ(th_basic_cv::name_color(cv::Scalar(20, 220, 230)), "yellow");
+  EXPECT_EQ(th_basic_cv::name_color(cv::Scalar(40, 180, 40)), "green");
+  EXPECT_EQ(th_basic_cv::name_color(cv::Scalar(220, 90, 30)), "blue");
+  EXPECT_EQ(th_basic_cv::name_color(cv::Scalar(170, 50, 140)), "purple");
+}
+
+TEST(Color, RedWrapsAroundTheHueCircle)
+{
+  // Red sits at both ends of the hue range (near 0 and near 179).
+  EXPECT_EQ(th_basic_cv::name_color(cv::Scalar(20, 0, 200)), "red");
+  EXPECT_EQ(th_basic_cv::name_color(cv::Scalar(70, 0, 200)), "red");
+}
+
+TEST(Color, NamesNeutrals)
+{
+  EXPECT_EQ(th_basic_cv::name_color(cv::Scalar(20, 20, 20)), "black");
+  EXPECT_EQ(th_basic_cv::name_color(cv::Scalar(245, 245, 245)), "white");
+  EXPECT_EQ(th_basic_cv::name_color(cv::Scalar(128, 128, 128)), "gray");
+}
+
+TEST(Pipeline, LabelsDrawnShapesWithTheirColors)
+{
+  cv::Mat image(360, 480, CV_8UC3, cv::Scalar(235, 235, 235));
+  const std::vector<std::vector<cv::Point>> triangle{{{40, 140}, {140, 140}, {90, 40}}};
+  cv::fillPoly(image, triangle, cv::Scalar(30, 30, 220));                          // red
+  cv::circle(image, cv::Point(250, 90), 50, cv::Scalar(220, 90, 30), cv::FILLED);  // blue
+  cv::rectangle(image, cv::Rect(340, 40, 100, 100), cv::Scalar(40, 180, 40), cv::FILLED);
+  cv::rectangle(image, cv::Rect(40, 220, 180, 80), cv::Scalar(20, 220, 230), cv::FILLED);
+  const std::vector<std::vector<cv::Point>> diamond{
+    {{330, 200}, {390, 260}, {330, 320}, {270, 260}}};
+  cv::fillPoly(image, diamond, cv::Scalar(0, 140, 255));                           // orange
+
+  const auto result = th_basic_cv::run_pipeline(image, th_basic_cv::PipelineParams{});
+  EXPECT_EQ(
+    labels(result),
+    (std::multiset<std::string>{
+    "red triangle", "blue circle", "green square", "yellow rectangle", "orange square"}));
+}
+
+TEST(Pipeline, FindsYellowOnWhite)
+{
+  // Yellow and white are nearly the same brightness, so grayscale edges alone miss it.
+  cv::Mat image = blank(240);
+  cv::rectangle(image, cv::Rect(100, 60, 120, 80), cv::Scalar(30, 230, 240), cv::FILLED);
+  EXPECT_EQ(
+    labels(th_basic_cv::run_pipeline(image, th_basic_cv::PipelineParams{})),
+    (std::multiset<std::string>{"yellow rectangle"}));
+}
+
+TEST(Pipeline, LabelsBlackAndWhiteObjects)
+{
+  cv::Mat light = blank();
+  cv::rectangle(light, cv::Rect(100, 60, 100, 100), cv::Scalar(15, 15, 15), cv::FILLED);
+  EXPECT_EQ(
+    labels(th_basic_cv::run_pipeline(light, th_basic_cv::PipelineParams{})),
+    (std::multiset<std::string>{"black square"}));
+
+  cv::Mat dark = blank(25);
+  cv::rectangle(dark, cv::Rect(100, 60, 100, 100), cv::Scalar(245, 245, 245), cv::FILLED);
+  EXPECT_EQ(
+    labels(th_basic_cv::run_pipeline(dark, th_basic_cv::PipelineParams{})),
+    (std::multiset<std::string>{"white square"}));
 }
 
 TEST(Conversions, BgrRoundTrip)

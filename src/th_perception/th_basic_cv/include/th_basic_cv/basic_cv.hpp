@@ -3,6 +3,7 @@
 #ifndef TH_BASIC_CV__BASIC_CV_HPP_
 #define TH_BASIC_CV__BASIC_CV_HPP_
 
+#include <string>
 #include <vector>
 
 #include <opencv2/core.hpp>
@@ -22,6 +23,8 @@ struct Detection
 {
   cv::Rect box;
   double area;
+  std::string shape;  // triangle, square, rectangle, circle, or polygon
+  std::string color;  // red, orange, yellow, green, blue, purple, black, white, or gray
 };
 
 struct PipelineResult
@@ -32,9 +35,15 @@ struct PipelineResult
   double mean_brightness;
 };
 
-// Grayscale, blur, Canny edges, then outer contours larger than min_contour_area.
-// Input must be an 8-bit BGR image.
+// Grayscale, blur, Canny edges, then outer contours larger than min_contour_area,
+// each labeled with a shape and a color. Input must be an 8-bit BGR image.
 PipelineResult run_pipeline(const cv::Mat & bgr, const PipelineParams & params);
+
+// Names a closed outline by its corner count and roundness.
+std::string classify_shape(const std::vector<cv::Point> & contour);
+
+// Names a BGR color by hue, or black/white/gray when it is dark or unsaturated.
+std::string name_color(const cv::Scalar & bgr);
 
 }  // namespace th_basic_cv
 

@@ -3,10 +3,26 @@
 A starting point for perception nodes: a basic OpenCV pipeline that runs on
 bundled sample images or on any live camera topic.
 
-For each frame it converts to grayscale, blurs, finds Canny edges, and boxes
-every outer contour larger than a minimum area. It publishes the edge map and
-an annotated copy of the image, and logs the object count, mean brightness and
+For each frame it blurs, finds Canny edges in each color channel, and boxes
+every outer contour larger than a minimum area. Each object is labeled with a
+shape and a color, like `red triangle`. It publishes the edge map and an
+annotated copy of the image, and logs the labels, mean brightness and
 processing time once a second.
+
+## How objects are labeled
+
+- **Shape**: the outline is simplified to its corners. 3 corners is a
+  `triangle`; 4 is a `square` if the sides are within 10% of each other
+  (rotation doesn't matter), otherwise a `rectangle`; a round outline is a
+  `circle`. Anything else is a `polygon`.
+- **Color**: the average color inside the outline, named by hue: `red`,
+  `orange`, `yellow`, `green`, `blue` or `purple`. Very dark is `black`; washed
+  out is `white` or `gray`.
+- Edges come from each color channel, not just grayscale, so objects that
+  differ in color but not brightness (yellow on white) are still found.
+- Limits: a hollow outline takes the color of whatever is inside it, colored
+  light shifts the hue, and a busy background (a window, a bookshelf) gives
+  many extra boxes. Plain backgrounds and even light work best.
 
 ![shapes](sample_images/01_shapes.png)
 
@@ -54,16 +70,19 @@ source install/setup.bash
 ros2 launch th_basic_cv basic_cv_demo.launch.py
 ```
 
-Expected log: `3 objects` for `01_shapes.png`, `5 objects` for `02_blocks.jpg`,
-and `0 objects` for `03_low_light.png` until you lower the Canny thresholds
-(with the values above it finds both shapes).
+Expected log:
+
+- `01_shapes.png`: `3 objects: red rectangle, blue circle, green triangle`
+- `02_blocks.jpg`: `5 objects`, one each of red, blue, yellow, green and purple
+- `03_low_light.png`: `0 objects` until you lower the Canny thresholds; with
+  the values above it finds a `gray rectangle` and a `blue circle`
 
 To run on a camera instead, start any node that publishes images and point the
 CV node at its topic:
 
 ```bash
-# vision_test's webcam node publishes on image_raw
-ros2 run vision_test ascii_camera_node
+# vision_test's camera node publishes on image_raw
+ros2 run vision_test camera_node
 ros2 launch th_basic_cv basic_cv_demo.launch.py use_samples:=false
 
 # or a camera on another topic
@@ -80,8 +99,9 @@ colcon test --packages-select th_basic_cv
 colcon test-result --verbose
 ```
 
-The gtest suite checks the pipeline on synthetic images and on the sample
-images (3 and 5 objects), plus the image conversions.
+The gtest suite checks shape and color naming on their own, the full pipeline
+on drawn scenes and on the sample images (counts and labels), and the image
+conversions.
 
 ## Code layout
 
