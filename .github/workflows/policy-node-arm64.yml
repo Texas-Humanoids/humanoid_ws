@@ -1,0 +1,40 @@
+name: Policy node ARM64
+
+on:
+  push:
+    paths:
+      - Dockerfile.cpu
+      - Dockerfile.gpu
+      - src/th_policy_node/**
+      - .github/workflows/policy-node-arm64.yml
+  pull_request:
+    paths:
+      - Dockerfile.cpu
+      - Dockerfile.gpu
+      - src/th_policy_node/**
+      - .github/workflows/policy-node-arm64.yml
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        dockerfile: [Dockerfile.cpu, Dockerfile.gpu]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build ARM64 development image
+        run: docker build --platform linux/arm64 -f "${{ matrix.dockerfile }}" -t policy-node:arm64 .
+      - name: Build and test policy package in ARM64 image
+        run: |
+          docker run --rm --platform linux/arm64 -v "$PWD:/ws" -w /ws policy-node:arm64 bash -lc '
+            set -e
+            source /opt/ros/jazzy/setup.bash
+            colcon --log-base /tmp/policy-log build --packages-select th_policy_node --build-base /tmp/policy-build --install-base /tmp/policy-install
+            colcon --log-base /tmp/policy-log test --packages-select th_policy_node --build-base /tmp/policy-build --install-base /tmp/policy-install
+            colcon --log-base /tmp/policy-log test-result --test-result-base /tmp/policy-build --verbose
+          '
