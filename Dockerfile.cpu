@@ -1,11 +1,22 @@
 FROM ros:jazzy-ros-base
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates curl \
     libopencv-dev \
     python3-colcon-common-extensions \
     python3-numpy \
     python3-pip \
     && rm -rf /var/lib/apt/lists/*
+
+# Pinned C++ ONNX Runtime SDK for the policy node.
+RUN curl -fsSL https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/onnxruntime-linux-x64-1.22.0.tgz \
+      -o /tmp/onnxruntime.tgz \
+    && echo '8344d55f93d5bc5021ce342db50f62079daf39aaafb5d311a451846228be49b3  /tmp/onnxruntime.tgz' | sha256sum -c - \
+    && mkdir -p /opt/onnxruntime \
+    && tar -xzf /tmp/onnxruntime.tgz -C /opt/onnxruntime --strip-components=1 \
+    && echo /opt/onnxruntime/lib > /etc/ld.so.conf.d/onnxruntime.conf \
+    && ldconfig && rm /tmp/onnxruntime.tgz
+ENV CMAKE_PREFIX_PATH=/opt/onnxruntime
 
 COPY src/th_policy_node/requirements.txt /tmp/th_policy_node-requirements.txt
 RUN python3 -m pip install --break-system-packages --no-cache-dir \

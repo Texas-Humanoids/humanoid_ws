@@ -1,4 +1,0 @@
--r requirements.txt
-numpy==1.26.4
-mujoco==3.3.7
-PyYAML>=6,<7

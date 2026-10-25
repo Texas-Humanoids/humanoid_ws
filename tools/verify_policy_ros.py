@@ -114,6 +114,15 @@ def main():
                         "max_error_rad": float(np.max(np.abs(actual - expected))),
                     })
                     print(f"PASS {name}: 22 finite, named targets match real ONNX inference")
+                for bad in ([0.0] * 74, [float("nan")] + [0.0] * 74):
+                    received.clear()
+                    publisher.publish(Float32MultiArray(data=bad))
+                    deadline = time.monotonic() + 0.3
+                    while time.monotonic() < deadline:
+                        rclpy.spin_once(node, timeout_sec=0.05)
+                    if received:
+                        raise AssertionError("Invalid observation produced joint targets")
+                print("PASS invalid observations: no targets published")
                 report["passed"] = True
                 args.output.write_text(json.dumps(report, indent=2) + "\n")
                 print(f"Saved {args.output}")
