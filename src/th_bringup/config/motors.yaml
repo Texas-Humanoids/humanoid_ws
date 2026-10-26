@@ -1,0 +1,20 @@
+# One entry per policy joint that has a RobStride motor attached. The launch
+# file starts one robstride_motor_node per entry in namespace /<joint name
+# without "_joint">, and joint_motor_bridge converts between joint and motor
+# angles with:  motor = direction * joint + offset
+#
+# lower/upper are physical joint limits in radians (joint space, after
+# calibration). Targets outside them are clamped before reaching the motor.
+# motor_id has no default on purpose; find it with
+# src/robstride_motor/scripts/find_motor_id.sh.
+#
+# Example:
+#   motors:
+#     - joint: leg_left_knee_pitch_joint
+#       motor_id: 1
+#       can_interface: can0
+#       direction: 1.0
+#       offset: 0.0
+#       lower: 0.0
+#       upper: 1.2
+motors: []

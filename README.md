@@ -111,3 +111,8 @@ colcon build --symlink-install
 ## Gamepad teleoperation
 
 See [gamepad_node](src/gamepad_node/README.md) for controller/keyboard setup and tests.
+
+## Running the robot
+
+See [th_bringup](src/th_bringup/README.md) to launch the gamepad → policy → motor
+pipeline, and [th_policy_bridge](src/th_policy_bridge/README.md) for how it fits together.
