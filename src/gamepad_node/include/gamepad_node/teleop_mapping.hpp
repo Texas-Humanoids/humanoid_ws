@@ -29,12 +29,12 @@ struct ScaleConfig
   double keyboard_scaling{0.8};  // keyboard max speed = this fraction of full speed
 };
 
-// Joy axis indices (Xbox 360 layout from joy_node).
+// Joy axis indices (SDL game controller layout from joy's game_controller_node).
 struct JoyAxisConfig
 {
   int forward{1};  // left stick up/down (up = +)
   int lateral{0};  // left stick left/right (left = +)
-  int turn{3};     // right stick left/right (left = +)
+  int turn{2};     // right stick left/right (left = +)
 };
 
 struct KeyState
@@ -88,11 +88,13 @@ inline Velocity keys_to_velocity(const KeyState & k, const ScaleConfig & s)
     (k.turn_left - k.turn_right) * s.angular_z * s.keyboard_scaling + 0.0};
 }
 
-// Xbox 360 button names as reported by joy_node.
+// Xbox button names in the SDL game controller layout from joy's game_controller_node.
+// The layout is the same for any controller SDL knows, wired or Bluetooth.
 inline std::string button_name(std::size_t index)
 {
-  static const std::array<const char *, 11> names = {
-    "A", "B", "X", "Y", "LB", "RB", "BACK", "START", "GUIDE", "L_STICK", "R_STICK"};
+  static const std::array<const char *, 15> names = {
+    "A", "B", "X", "Y", "BACK", "GUIDE", "START", "L_STICK", "R_STICK", "LB", "RB",
+    "DPAD_UP", "DPAD_DOWN", "DPAD_LEFT", "DPAD_RIGHT"};
   return index < names.size() ? names[index] : "BUTTON_" + std::to_string(index);
 }
 

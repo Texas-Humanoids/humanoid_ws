@@ -85,7 +85,7 @@ public:
       std::bind(&PolicyNode::on_observation, this, std::placeholders::_1));
     RCLCPP_INFO(get_logger(), "Loaded %s: %zu inputs, %zu joint targets",
       model_path.c_str(), observation_size_, joint_names_.size());
-    RCLCPP_INFO(get_logger(), "Targets reach motors only through an armed joint_motor_bridge");
+    RCLCPP_INFO(get_logger(), "Targets reach motors only through an armed policy_bridge");
   }
 
 private:

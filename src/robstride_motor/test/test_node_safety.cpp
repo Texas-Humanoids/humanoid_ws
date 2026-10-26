@@ -170,6 +170,26 @@ TEST_F(NodeSafety, AcceptsBoundaryIdsWithoutTruncation)
   }
 }
 
+TEST_F(NodeSafety, AcceptsRs03AndRejectsInvalidLimits)
+{
+  {
+    auto rs03 = options();
+    rs03.append_parameter_override("motor_model", "RS03");
+    RobstrideMotorNode node(rs03);
+    EXPECT_EQ(count_frames(robstride_motor::kCommTypeEnable), 1);
+  }
+  for (const char * name : {"speed_limit", "current_limit", "feedback_rate"}) {
+    reset_transport();
+    auto invalid = options();
+    invalid.append_parameter_override(name, 0.0);
+    EXPECT_THROW(RobstrideMotorNode node(invalid), std::invalid_argument);
+    EXPECT_EQ(test_can::socket_count, 0);
+  }
+  auto unknown = options();
+  unknown.append_parameter_override("motor_model", "RS99");
+  EXPECT_THROW(RobstrideMotorNode node(unknown), std::runtime_error);
+}
+
 TEST_F(NodeSafety, EveryFailedStartupWritePreventsEnableAndClosesSocket)
 {
   // Stop, mode, speed, current, position read request, initial target, enable.
@@ -205,9 +225,9 @@ TEST_F(NodeSafety, ConstructorExceptionStopsAndClosesSocket)
 TEST_F(NodeSafety, ExceptionAfterEnableStopsAndClosesSocket)
 {
   EXPECT_THROW(
-    {
-      RobstrideMotorNode node(options());
-      throw std::runtime_error("Injected executor exception");
+  {
+    RobstrideMotorNode node(options());
+    throw std::runtime_error("Injected executor exception");
     }, std::runtime_error);
   EXPECT_EQ(count_frames(robstride_motor::kCommTypeEnable), 1);
   EXPECT_EQ(count_frames(robstride_motor::kCommTypeStop), 2);

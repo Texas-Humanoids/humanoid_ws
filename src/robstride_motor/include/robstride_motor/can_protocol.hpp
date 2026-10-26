@@ -19,6 +19,7 @@ constexpr uint16_t kParamLocRef = 0x7016;
 constexpr uint16_t kParamSpeedLimit = 0x7017;
 constexpr uint16_t kParamCurrentLimit = 0x7018;
 constexpr uint16_t kParamMechPos = 0x7019;
+constexpr uint16_t kParamMechVel = 0x701B;
 
 constexpr uint8_t kCspRunMode = 5;
 

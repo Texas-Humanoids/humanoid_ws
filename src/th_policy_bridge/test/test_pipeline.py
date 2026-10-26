@@ -1,4 +1,4 @@
-"""Run both real executables over DDS with fake motors, IMU and policy."""
+"""Run the real policy_bridge executable over DDS with fake motors, IMU and policy."""
 
 import os
 import signal
@@ -15,15 +15,17 @@ from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Imu, JointState
 from std_msgs.msg import Float32MultiArray, Float64, String
 
-JOINTS = ['hip_joint', 'knee_joint']
-DEFAULTS = [0.0, 0.4]
+# The ankle has no motor, so it always reads as its default pose.
+JOINTS = ['hip_joint', 'knee_joint', 'ankle_joint']
+DEFAULTS = [0.0, 0.4, -0.3]
 SCALE = 0.25
+MOTORS = ['hip', 'knee']
 
 
 class Harness:
-    """Starts observation_builder and joint_motor_bridge in an isolated namespace."""
+    """Starts policy_bridge in an isolated namespace and plays the rest of the robot."""
 
-    def __init__(self, builder_params=None):
+    def __init__(self, **parameters):
         self.context = rclpy.Context()
         rclpy.init(context=self.context)
         self.ns = '/test_' + uuid.uuid4().hex
@@ -31,64 +33,45 @@ class Harness:
         self.executor = SingleThreadedExecutor(context=self.context)
         self.executor.add_node(self.node)
         self.observations = []
-        self.joint_states = []
-        self.motor_commands = {'hip': [], 'knee': []}
-        self.motor_positions = {'hip': 0.0, 'knee': 0.0}
+        self.commands = {motor: [] for motor in MOTORS}
+        self.motor_state = {motor: (0.0, 0.0) for motor in MOTORS}  # (position, velocity)
 
         topic = self.topic
         self.node.create_subscription(
             Float32MultiArray, topic('observation'), self.observations.append, 10)
-        self.node.create_subscription(
-            JointState, topic('joint_states'), self.joint_states.append, 10)
-        self.feedback = {}
-        for motor in self.motor_commands:
+        self.position = {}
+        self.velocity = {}
+        for motor in MOTORS:
             self.node.create_subscription(
-                Float64, topic(motor + '/motor/target_position'),
-                self.motor_commands[motor].append, 10)
-            self.feedback[motor] = self.node.create_publisher(
+                Float64, topic(motor + '/motor/target_position'), self.commands[motor].append, 10)
+            self.position[motor] = self.node.create_publisher(
                 Float64, topic(motor + '/motor/actual_position'), 10)
+            self.velocity[motor] = self.node.create_publisher(
+                Float64, topic(motor + '/motor/actual_velocity'), 10)
         self.cmd_vel = self.node.create_publisher(Twist, topic('cmd_vel'), 10)
         self.imu = self.node.create_publisher(Imu, topic('imu'), qos_profile_sensor_data)
         self.targets = self.node.create_publisher(JointState, topic('targets'), 10)
         self.buttons = self.node.create_publisher(String, topic('buttons'), 10)
 
-        common = {
-            'joint_state_topic': topic('joint_states'),
-            'joint_target_topic': topic('targets'),
-        }
-        builder = {
-            **common,
+        parameters = {
             'joint_names': JOINTS,
             'default_joint_positions': DEFAULTS,
             'action_scale': SCALE,
-            'rate': 25.0,
-            'cmd_vel_topic': topic('cmd_vel'),
-            'imu_topic': topic('imu'),
-            'observation_topic': topic('observation'),
-            **(builder_params or {}),
-        }
-        bridge = {
-            **common,
-            'joint_names': JOINTS,
+            'motor_joints': ['hip_joint', 'knee_joint'],
             'motor_namespaces': [topic('hip'), topic('knee')],
             # The knee motor is mounted reversed with a 1 rad offset.
             'directions': [1.0, -1.0],
             'offsets': [0.0, 1.0],
             'lower_limits': [-0.5, 0.0],
             'upper_limits': [0.5, 1.5],
+            'cmd_vel_topic': topic('cmd_vel'),
+            'imu_topic': topic('imu'),
+            'joint_target_topic': topic('targets'),
             'button_topic': topic('buttons'),
+            'observation_topic': topic('observation'),
+            **parameters,
         }
-        self.log = tempfile.TemporaryFile(mode='w+')
-        self.processes = [
-            self.start('OBSERVATION_BUILDER_EXECUTABLE', builder),
-            self.start('JOINT_MOTOR_BRIDGE_EXECUTABLE', bridge),
-        ]
-
-    def topic(self, name):
-        return self.ns + '/' + name
-
-    def start(self, variable, parameters):
-        args = [os.environ[variable], '--ros-args']
+        args = [os.environ['POLICY_BRIDGE_EXECUTABLE'], '--ros-args']
         for name, value in parameters.items():
             if isinstance(value, list):
                 value = '[' + ', '.join(
@@ -96,7 +79,11 @@ class Harness:
             elif isinstance(value, bool):
                 value = str(value).lower()
             args.extend(['-p', f'{name}:={value}'])
-        return subprocess.Popen(args, stdout=self.log, stderr=subprocess.STDOUT)
+        self.log = tempfile.TemporaryFile(mode='w+')
+        self.process = subprocess.Popen(args, stdout=self.log, stderr=subprocess.STDOUT)
+
+    def topic(self, name):
+        return self.ns + '/' + name
 
     def diagnostics(self):
         self.log.seek(0)
@@ -117,35 +104,41 @@ class Harness:
             self.executor.spin_once(timeout_sec=0.02)
             if predicate():
                 return
-        pytest.fail('Timed out waiting for pipeline behavior:\n' + self.diagnostics())
+        pytest.fail('Timed out waiting for policy_bridge:\n' + self.diagnostics())
 
-    def publish_sensors(self, imu=True):
-        for motor, position in self.motor_positions.items():
-            self.feedback[motor].publish(Float64(data=position))
-        if imu:
-            msg = Imu()
-            msg.orientation.w = 1.0
-            msg.angular_velocity.z = 0.5
-            self.imu.publish(msg)
+    def publish_motors(self, motors=MOTORS):
+        for motor in motors:
+            position, velocity = self.motor_state[motor]
+            self.position[motor].publish(Float64(data=position))
+            self.velocity[motor].publish(Float64(data=velocity))
+
+    def publish_imu(self):
+        msg = Imu(orientation=Quaternion(w=1.0))
+        msg.angular_velocity.z = 0.5
+        self.imu.publish(msg)
+
+    def publish_sensors(self):
+        self.publish_motors()
+        self.publish_imu()
 
     def publish_targets(self, positions):
         self.targets.publish(JointState(name=JOINTS, position=positions))
 
-    def ready(self):
-        self.wait(lambda: self.targets.get_subscription_count() == 2 and
-                  self.buttons.get_subscription_count() == 1 and
-                  self.node.count_publishers(self.topic('observation')) == 1)
+    def arm(self, step):
+        self.spin_for(0.3, step=step)
+        for commands in self.commands.values():
+            commands.clear()
+        self.buttons.publish(String(data='START pressed'))
+        self.wait(lambda: all(self.commands.values()), step=step)
 
     def close(self):
-        for process in self.processes:
-            if process.poll() is None:
-                process.send_signal(signal.SIGINT)
-        for process in self.processes:
+        if self.process.poll() is None:
+            self.process.send_signal(signal.SIGINT)
             try:
-                process.wait(timeout=5)
+                self.process.wait(timeout=5)
             except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=5)
+                self.process.kill()
+                self.process.wait(timeout=5)
         self.executor.shutdown()
         self.node.destroy_node()
         rclpy.shutdown(context=self.context)
@@ -156,60 +149,69 @@ class Harness:
 def harness():
     started = []
 
-    def start(**kwargs):
-        started.append(Harness(**kwargs))
-        started[-1].ready()
-        return started[-1]
+    def start(**parameters):
+        h = Harness(**parameters)
+        started.append(h)
+        h.wait(lambda: h.targets.get_subscription_count() == 1 and
+               h.buttons.get_subscription_count() == 1 and
+               h.node.count_publishers(h.topic('observation')) == 1)
+        return h
 
     yield start
     for h in started:
         h.close()
 
 
-def test_observation_combines_command_imu_feedback_and_previous_actions(harness):
+def test_observation_combines_command_imu_motors_and_previous_actions(harness):
     h = harness()
-    h.motor_positions = {'hip': 0.1, 'knee': 0.7}  # knee joint = -(0.7 - 1.0) = 0.3
+    # Knee motor 0.7 rad, -2 rad/s is joint -(0.7 - 1.0) = 0.3 rad, +2 rad/s.
+    h.motor_state = {'hip': (0.1, 1.5), 'knee': (0.7, -2.0)}
 
     def step():
         h.publish_sensors()
-        h.cmd_vel.publish(Twist())
+        h.publish_targets([0.25, 0.5, -0.3])  # actions 1.0, 0.4, 0.0
+        h.cmd_vel.publish(Twist(linear=Vector3(x=0.3)))
 
-    h.wait(lambda: bool(h.observations), step=step)
-    h.cmd_vel.publish(Twist(linear=Vector3(x=0.3)))
-    h.publish_targets([0.25, 0.5])  # actions (0.25 - 0) / 0.25 = 1, (0.5 - 0.4) / 0.25 = 0.4
-    h.observations.clear()
-    h.wait(lambda: any(abs(o.data[0] - 0.3) < 1e-6 and abs(o.data[14] - 0.4) < 1e-5
-                       for o in h.observations), step=h.publish_sensors)
-    obs = next(o for o in h.observations if abs(o.data[0] - 0.3) < 1e-6)
-    assert len(obs.data) == 15
-    assert obs.data[5] == pytest.approx(0.5)  # yaw rate
-    assert list(obs.data[6:9]) == pytest.approx([0.0, 0.0, -1.0])
-    assert list(obs.data[9:11]) == pytest.approx([0.1, -0.1], abs=1e-5)  # 0.3 - 0.4 default
-    assert list(obs.data[13:15]) == pytest.approx([1.0, 0.4], abs=1e-5)
+    h.wait(lambda: any(abs(o.data[0] - 0.3) < 1e-6 and abs(o.data[15] - 1.0) < 1e-6
+                       for o in h.observations), step=step)
+    obs = [o for o in h.observations if abs(o.data[15] - 1.0) < 1e-6][-1].data
+    assert len(obs) == 18
+    assert obs[5] == pytest.approx(0.5)  # yaw rate
+    assert list(obs[6:9]) == pytest.approx([0.0, 0.0, -1.0])
+    assert list(obs[9:12]) == pytest.approx([0.1, -0.1, 0.0], abs=1e-6)  # relative to default
+    assert list(obs[12:15]) == pytest.approx([1.5, 2.0, 0.0])
+    assert list(obs[15:18]) == pytest.approx([1.0, 0.4, 0.0], abs=1e-6)
 
 
-def test_observation_waits_for_imu_and_all_joints(harness):
+def test_stale_command_reads_as_stop(harness):
     h = harness()
-    h.spin_for(0.5, step=lambda: h.publish_sensors(imu=False))
-    assert not h.observations
+    h.cmd_vel.publish(Twist(linear=Vector3(x=0.3)))
+    h.spin_for(0.7, step=h.publish_sensors)
+    h.observations.clear()
+    h.wait(lambda: bool(h.observations), step=h.publish_sensors)
+    assert h.observations[-1].data[0] == 0.0
+
+
+def test_observation_waits_for_imu_and_every_motor(harness):
+    h = harness()
 
     def hip_only():
-        h.feedback['hip'].publish(Float64(data=0.0))
-        h.imu.publish(Imu(orientation=Quaternion(w=1.0)))
+        h.publish_imu()
+        h.publish_motors(['hip'])
 
-    # Let the knee feedback from the first phase go stale before checking.
-    h.spin_for(0.5, step=hip_only)
+    h.spin_for(0.5, step=h.publish_motors)
+    assert not h.observations
+    h.spin_for(0.3, step=hip_only)
     h.observations.clear()
     h.spin_for(0.5, step=hip_only)
     assert not h.observations
+    assert 'motor feedback is stale' in h.diagnostics()
 
 
-def test_bench_mode_runs_without_imu_or_motors(harness):
-    h = harness(builder_params={'require_imu': False, 'require_all_joints': False})
-    h.wait(lambda: bool(h.observations))
-    obs = h.observations[-1].data
-    assert list(obs[6:9]) == pytest.approx([0.0, 0.0, -1.0])
-    assert list(obs[9:11]) == pytest.approx([0.0, 0.0])
+def test_without_imu_assumes_upright(harness):
+    h = harness(require_imu=False)
+    h.wait(lambda: bool(h.observations), step=h.publish_motors)
+    assert list(h.observations[-1].data[3:9]) == pytest.approx([0, 0, 0, 0, 0, -1.0])
 
 
 def test_targets_reach_motors_only_while_armed(harness):
@@ -217,58 +219,68 @@ def test_targets_reach_motors_only_while_armed(harness):
 
     def step():
         h.publish_sensors()
-        h.publish_targets([0.2, 0.6])
+        h.publish_targets([0.2, 0.6, 5.0])
 
-    h.wait(lambda: len(h.joint_states) > 2, step=step)
-    h.spin_for(0.3, step=step)
-    assert not h.motor_commands['hip'] and not h.motor_commands['knee']
+    h.spin_for(0.5, step=step)
+    assert not any(h.commands.values())
 
-    h.buttons.publish(String(data='START pressed'))
-    h.wait(lambda: h.motor_commands['hip'] and h.motor_commands['knee'], step=step)
-    assert h.motor_commands['hip'][-1].data == pytest.approx(0.2)
-    assert h.motor_commands['knee'][-1].data == pytest.approx(0.4)  # -0.6 + 1.0
+    h.arm(step)
+    assert h.commands['hip'][-1].data == pytest.approx(0.2)
+    assert h.commands['knee'][-1].data == pytest.approx(0.4)  # -0.6 + 1.0
 
-    h.publish_targets([9.0, -9.0])  # clamped to joint limits 0.5 and 0.0
-    h.wait(lambda: h.motor_commands['hip'][-1].data == pytest.approx(0.5) and
-           h.motor_commands['knee'][-1].data == pytest.approx(1.0))
+    h.publish_targets([9.0, -9.0, 0.0])  # clamped to joint limits 0.5 and 0.0
+    h.wait(lambda: h.commands['hip'][-1].data == pytest.approx(0.5) and
+           h.commands['knee'][-1].data == pytest.approx(1.0))
 
     h.buttons.publish(String(data='BACK pressed'))
     h.spin_for(0.3, step=step)
-    for commands in h.motor_commands.values():
+    for commands in h.commands.values():
         commands.clear()
     h.spin_for(0.3, step=step)
-    assert not h.motor_commands['hip'] and not h.motor_commands['knee']
+    assert not any(h.commands.values())
 
 
-def test_bridge_refuses_to_arm_without_feedback_and_disarms_on_timeouts(harness):
+def test_refuses_to_arm_when_not_ready(harness):
     h = harness()
-    h.spin_for(0.3, step=lambda: h.publish_targets([0.0, 0.4]))
+    h.spin_for(0.3, step=lambda: h.publish_targets([0.0, 0.4, -0.3]))
     h.buttons.publish(String(data='START pressed'))
-    h.spin_for(0.3, step=lambda: h.publish_targets([0.0, 0.4]))
-    assert not h.motor_commands['hip']
+    h.spin_for(0.3, step=lambda: h.publish_targets([0.0, 0.4, -0.3]))
+    assert not any(h.commands.values())
+    assert 'Not arming: motor feedback is stale' in h.diagnostics()
+
+    h.spin_for(0.3, step=h.publish_sensors)
+    h.buttons.publish(String(data='START pressed'))
+    h.spin_for(0.3, step=h.publish_sensors)
+    assert 'Not arming: the policy is not publishing targets' in h.diagnostics()
+
+
+def test_disarms_when_policy_or_feedback_stops(harness):
+    h = harness()
 
     def step():
         h.publish_sensors()
-        h.publish_targets([0.1, 0.4])
+        h.publish_targets([0.1, 0.4, -0.3])
 
-    h.spin_for(0.3, step=step)
-    h.buttons.publish(String(data='START pressed'))
-    h.wait(lambda: bool(h.motor_commands['hip']), step=step)
-
-    # Policy stops: the bridge disarms, so a late target is not forwarded.
+    h.arm(step)
     h.spin_for(0.5, step=h.publish_sensors)
-    h.motor_commands['hip'].clear()
-    h.publish_targets([0.3, 0.4])
+    h.commands['hip'].clear()
+    h.publish_targets([0.3, 0.4, -0.3])
     h.spin_for(0.3, step=h.publish_sensors)
-    assert not h.motor_commands['hip']
-    assert 'policy targets timed out' in h.diagnostics()
+    assert not h.commands['hip']
+    assert 'Disarmed (policy targets timed out)' in h.diagnostics()
 
-    # Motor feedback stops: the bridge disarms too.
-    h.spin_for(0.3, step=step)
-    h.buttons.publish(String(data='START pressed'))
-    h.wait(lambda: bool(h.motor_commands['hip']), step=step)
-    h.spin_for(0.6, step=lambda: h.publish_targets([0.1, 0.4]))
-    h.motor_commands['hip'].clear()
-    h.spin_for(0.3, step=lambda: h.publish_targets([0.1, 0.4]))
-    assert not h.motor_commands['hip']
-    assert 'motor feedback timed out' in h.diagnostics()
+    h.arm(step)
+    h.spin_for(0.4, step=lambda: h.publish_targets([0.1, 0.4, -0.3]))
+    h.commands['hip'].clear()
+    h.spin_for(0.3, step=lambda: h.publish_targets([0.1, 0.4, -0.3]))
+    assert not h.commands['hip']
+    assert 'Disarmed (motor feedback is stale)' in h.diagnostics()
+
+
+def test_rejects_motor_for_unknown_joint():
+    h = Harness(motor_joints=['wrist_joint', 'knee_joint'])
+    try:
+        assert h.process.wait(timeout=10) == 1
+        assert 'wrist_joint is not a policy joint' in h.diagnostics()
+    finally:
+        h.close()

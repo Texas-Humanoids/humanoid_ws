@@ -13,7 +13,7 @@ ros2 launch gamepad_node gamepad_node.launch.py
 ros2 launch gamepad_node gamepad_node.launch.py input_mode:=keyboard
 ```
 
-| Motion | Controller (Xbox 360 / X-input) | Keyboard |
+| Motion | Controller (Xbox, USB or Bluetooth) | Keyboard |
 |---|---|---|
 | Forward/back (`linear.x`) | Left stick Y | W/S |
 | Side-to-side (`linear.y`, left positive) | Left stick X | A/D |
@@ -22,6 +22,11 @@ ros2 launch gamepad_node gamepad_node.launch.py input_mode:=keyboard
 Speeds and input settings live in `config/gamepad_node.yaml`; override the file
 with `config:=/path/to/file.yaml`. Keyboard speed is multiplied by `keyboard_scaling`.
 Keyboard input is global while the node runs. Opposite keys cancel; axes combine.
+
+Controller mode uses `joy`'s `game_controller_node`, which reports the same
+button and axis order for every controller SDL recognizes (SDL game controller
+layout: LB = button 9, START = 6, BACK = 4, right stick X = axis 2). Check a new
+controller with `ros2 run joy game_controller_node` and `ros2 topic echo /joy`.
 
 Hold LB to enable the controller. Releasing LB or losing controller input sends a
 stop. Keyboard device loss or queue overflow clears held keys; after overflow,

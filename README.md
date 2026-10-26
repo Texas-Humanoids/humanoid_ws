@@ -14,6 +14,7 @@ humanoid_ws/
 ├── src/                    ROS 2 packages
 │   ├── th_description/     robot model (URDF, meshes)
 │   ├── th_bringup/         launch files and config that start the robot
+│   ├── th_policy_bridge/   connects the policy to the gamepad, IMU and motors
 │   ├── robstride_driver/   talks to the RobStride motors over CAN
 │   ├── th_hardware/        connects ROS controllers to the motors
 │   ├── th_controllers/     custom controllers (RL walking policy)

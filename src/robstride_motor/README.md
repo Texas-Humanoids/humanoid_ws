@@ -1,6 +1,6 @@
 # robstride_motor
 
-ROS 2 node for driving a single RobStride RS06 actuator over real CAN (SocketCAN), using the motor's CSP (Cyclic Synchronous Position) mode. This talks to real hardware — it is not a simulation.
+ROS 2 node for driving a single RobStride RS06 or RS03 actuator over real CAN (SocketCAN), using the motor's CSP (Cyclic Synchronous Position) mode. This talks to real hardware — it is not a simulation.
 
 ## Hardware setup
 
@@ -88,14 +88,23 @@ ros2 run robstride_motor robstride_motor_node --ros-args \
   -p motor_model:=RS06
 ```
 
-`motor_id` must be in **0–127** and has **no default** — it must be supplied, or the node will throw on startup rather than silently commanding the wrong device. `can_interface` defaults to `can0`; `motor_model` defaults to `RS06`. Supported models are looked up from a table in the node — currently only `RS06` has a verified entry, so anything else causes the node to refuse to start at launch.
+`motor_id` must be in **0–127** and has **no default** — it must be supplied, or the node will throw on startup rather than silently commanding the wrong device. `can_interface` defaults to `can0`; `motor_model` defaults to `RS06`. Supported models are looked up from a table in the node: `RS06` (verified on hardware) and `RS03` (same protocol and ±4π position range per the RobStride manuals, not yet run on hardware). Anything else makes the node refuse to start.
+
+| Parameter | Default | Meaning |
+|---|---|---|
+| `speed_limit` | `1.0` | CSP speed limit written at startup, rad/s |
+| `current_limit` | `3.0` | Current limit written at startup, A |
+| `feedback_rate` | `50.0` | Position/velocity polling rate, Hz |
 
 ## Topics
 
 | Topic | Type | Direction | Notes |
 |---|---|---|---|
 | `motor/target_position` | `std_msgs/Float64` | Subscribe | Radians. Clamped to ±4π before being sent to the motor. |
-| `motor/actual_position` | `std_msgs/Float64` | Publish | Real motor feedback, polled over CAN at 10 Hz — not simulated. |
+| `motor/actual_position` | `std_msgs/Float64` | Publish | Radians, read from `mechPos` (`0x7019`) at `feedback_rate`. |
+| `motor/actual_velocity` | `std_msgs/Float64` | Publish | Rad/s, read from `mechVel` (`0x701B`) right after the position. |
+
+Each poll reads position then velocity with a 5 ms reply timeout, so a silent motor skips a sample instead of stalling the node. Nothing is published unless both reads succeed.
 
 Example:
 ```bash
@@ -112,7 +121,7 @@ RobStride's protocol packs a 29-bit extended CAN ID as: 5-bit comm type (bits 28
 **Startup sequence** (all verified byte-for-byte against real `candump` captures):
 1. **Disable** the motor (comm type `4`) — clean slate before reconfiguring.
 2. **Write `run_mode = 5`** (parameter `0x7005`, comm type `0x12`) — this switches the motor into CSP (Cyclic Synchronous Position) mode.
-3. **Write speed limit** (parameter `0x7017`) and **current limit** (parameter `0x7018`) as floats — conservative values (1.0 rad/s, 3.0 A) for safety on a fresh bring-up.
+3. **Write speed limit** (parameter `0x7017`) and **current limit** (parameter `0x7018`) as floats — `speed_limit` and `current_limit`, conservative by default (1.0 rad/s, 3.0 A) for safety on a fresh bring-up.
 4. **Read the motor's actual current position** (parameter `0x7019`, "mechPos", comm type `0x11` request / response).
 5. **Write that same value back as the initial position target** (parameter `0x7016`, "loc_ref"). This step is critical — skip it, and the motor can jump violently toward whatever stale target it had stored from a previous session the instant it's enabled.
 6. **Enable** the motor (comm type `3`).
@@ -159,5 +168,5 @@ Unit tests cover CAN ID packing and parameter encode/decode against real capture
 ## Known limitations
 
 - Single motor per node; no coordinated multi-joint motion yet.
-- Only RS06 is supported as a `motor_model` today — the lookup is table-driven (`kMotorLimitsByModel` in the node), so adding a verified second model is a one-line addition rather than a restructure. We don't yet have verified position/speed/current ranges for any other RobStride model, which is the actual blocker, not the code structure.
+- Only RS06 and RS03 are in the `motor_model` table (`kMotorLimitsByModel`); RS03 has not been run on hardware yet.
 - No CAN watchdog or fault-code handling — a motor-side fault isn't currently surfaced back to ROS.

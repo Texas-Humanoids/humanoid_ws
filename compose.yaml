@@ -36,3 +36,22 @@ services:
     command: sleep infinity
     volumes:
       - .:/ws
+
+  # On the robot computer (e.g. Jetson Orin Nano): host networking for CAN, and
+  # /dev plus udev so SDL can find a Bluetooth or USB controller. Runs as root
+  # so it can bring up can0 and read /dev/input.
+  robot:
+    profiles: [robot]
+    build:
+      context: .
+      dockerfile: Dockerfile.cpu
+    image: humanoid-ros:cpu
+    network_mode: host
+    privileged: true
+    stdin_open: true
+    tty: true
+    command: sleep infinity
+    volumes:
+      - .:/ws
+      - /dev:/dev
+      - /run/udev:/run/udev:ro

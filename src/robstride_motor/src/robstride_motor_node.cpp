@@ -31,7 +31,9 @@ struct MotorLimits
   double position_max;
 };
 
+// Position ranges from the RobStride manuals; every model in this family uses +/-4 pi.
 const std::map<std::string, MotorLimits> kMotorLimitsByModel = {
+  {"RS03", {-4.0 * M_PI, 4.0 * M_PI}},
   {"RS06", {-4.0 * M_PI, 4.0 * M_PI}},
 };
 
@@ -49,6 +51,16 @@ public:
     motor_model_ =
       this->declare_parameter<std::string>("motor_model", "RS06");
 
+    speed_limit_ = this->declare_parameter<double>("speed_limit", 1.0);
+    current_limit_ = this->declare_parameter<double>("current_limit", 3.0);
+    const double feedback_rate = this->declare_parameter<double>("feedback_rate", 50.0);
+    if (!(speed_limit_ > 0.0) || !std::isfinite(speed_limit_) ||
+      !(current_limit_ > 0.0) || !std::isfinite(current_limit_) ||
+      !(feedback_rate > 0.0) || !std::isfinite(feedback_rate))
+    {
+      throw std::invalid_argument("speed_limit, current_limit and feedback_rate must be > 0");
+    }
+
     motor_id_ =
       this->declare_parameter<int64_t>("motor_id");
     if (motor_id_ < 0 || motor_id_ > 127) {
@@ -60,12 +72,15 @@ public:
       motor_limits_ = it->second;
     } else {
       throw std::runtime_error(
-      "Unsupported motor_model '" + motor_model_ + "'; supported models: RS06");
+      "Unsupported motor_model '" + motor_model_ + "'; supported models: RS03, RS06");
     }
 
     actual_position_publisher_ =
       this->create_publisher<std_msgs::msg::Float64>(
         "motor/actual_position", 10);
+    actual_velocity_publisher_ =
+      this->create_publisher<std_msgs::msg::Float64>(
+        "motor/actual_velocity", 10);
 
     position_subscription_ =
       this->create_subscription<std_msgs::msg::Float64>(
@@ -77,7 +92,8 @@ public:
         });
 
     feedback_timer_ = this->create_wall_timer(
-      std::chrono::milliseconds(100),
+      std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::duration<double>(1.0 / feedback_rate)),
       [this]()
       {
         this->poll_feedback();
@@ -90,14 +106,14 @@ public:
 
       if (!send_stop_frame() ||
         !write_param_u8(kParamRunMode, kCspRunMode) ||
-        !write_param_float(kParamSpeedLimit, 1.0f) ||
-        !write_param_float(kParamCurrentLimit, 3.0f))
+        !write_param_float(kParamSpeedLimit, static_cast<float>(speed_limit_)) ||
+        !write_param_float(kParamCurrentLimit, static_cast<float>(current_limit_)))
       {
         throw std::runtime_error("CAN configuration write failed; refusing to enable");
       }
 
       float current_position = 0.0f;
-      if (!read_param_float(kParamMechPos, current_position) ||
+      if (!read_param_float(kParamMechPos, current_position, kStartupReadTimeout) ||
         !std::isfinite(current_position))
       {
         throw std::runtime_error("Could not read a finite starting position; refusing to enable");
@@ -110,8 +126,10 @@ public:
 
       RCLCPP_WARN(
         this->get_logger(),
-        "Sending real CAN commands to motor %ld on %s (CSP mode). Starting position: %.3f rad.",
-        static_cast<long>(motor_id_), can_interface_.c_str(), target_position_);
+        "Sending real CAN commands to %s motor %ld on %s (CSP mode, %.2f rad/s, %.1f A). "
+        "Starting position: %.3f rad.",
+        motor_model_.c_str(), static_cast<long>(motor_id_), can_interface_.c_str(),
+        speed_limit_, current_limit_, target_position_);
     } catch (...) {
       // A failed constructor does not invoke this class's destructor.
       close_can_socket();
@@ -148,17 +166,21 @@ private:
   std::string can_interface_;
   std::string motor_model_;
   int64_t motor_id_;
+  double speed_limit_ = 0.0;
+  double current_limit_ = 0.0;
   MotorLimits motor_limits_{};
   int can_socket_ = -1;
 
   double target_position_ = 0.0;
-  int feedback_poll_count_ = 0;
 
   rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr
     position_subscription_;
 
   rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr
     actual_position_publisher_;
+
+  rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr
+    actual_velocity_publisher_;
 
   rclcpp::TimerBase::SharedPtr feedback_timer_;
 
@@ -192,7 +214,7 @@ private:
 
     struct timeval tv;
     tv.tv_sec = 0;
-    tv.tv_usec = 20000;
+    tv.tv_usec = 2000;  // read_param_float loops until its own deadline
     setsockopt(can_socket_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
     return true;
@@ -244,7 +266,11 @@ private:
     return send_frame(can_id, encode_param_float(index, value));
   }
 
-  bool read_param_float(uint16_t index, float & out_value)
+  static constexpr std::chrono::milliseconds kStartupReadTimeout{200};
+  // Short enough that a silent motor cannot stall the 50 Hz feedback loop.
+  static constexpr std::chrono::milliseconds kPollReadTimeout{5};
+
+  bool read_param_float(uint16_t index, float & out_value, std::chrono::milliseconds timeout)
   {
     if (can_socket_ < 0) {
       return false;
@@ -256,7 +282,7 @@ private:
       return false;
     }
 
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(200);
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
     struct can_frame reply;
 
     while (std::chrono::steady_clock::now() < deadline) {
@@ -291,18 +317,25 @@ private:
 
   void poll_feedback()
   {
-    float actual = 0.0f;
-    if (!read_param_float(kParamMechPos, actual)) {
+    float position = 0.0f;
+    float velocity = 0.0f;
+    if (!read_param_float(kParamMechPos, position, kPollReadTimeout) ||
+      !read_param_float(kParamMechVel, velocity, kPollReadTimeout) ||
+      !std::isfinite(position) || !std::isfinite(velocity))
+    {
       return;
     }
 
     std_msgs::msg::Float64 msg;
-    msg.data = actual;
+    msg.data = position;
     actual_position_publisher_->publish(msg);
+    msg.data = velocity;
+    actual_velocity_publisher_->publish(msg);
 
-    if (++feedback_poll_count_ % 10 == 0) {
-      RCLCPP_INFO(this->get_logger(), "Actual position: %.3f rad", actual);
-    }
+    RCLCPP_INFO_THROTTLE(
+      this->get_logger(), *this->get_clock(), 2000,
+      "Actual position: %.3f rad, velocity: %.3f rad/s, target: %.3f rad",
+      position, velocity, target_position_);
   }
 
   void on_position_command(
@@ -321,7 +354,7 @@ private:
       return;
     }
 
-    RCLCPP_INFO(
+    RCLCPP_DEBUG(
       this->get_logger(),
       "New target: %.3f rad",
       target_position_);

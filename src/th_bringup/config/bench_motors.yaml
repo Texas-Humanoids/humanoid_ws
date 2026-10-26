@@ -1,0 +1,31 @@
+# Three free-spinning motors on a test bench, standing in for the left leg's
+# pitch joints (the joints that react most to forward/back commands).
+#
+# Before running: replace each motor_id with the ID that
+# src/robstride_motor/scripts/find_motor_id.sh reports, and set motor_model
+# to RS03 or RS06 for that motor. Limits are the Berkeley URDF joint limits.
+motors:
+  - joint: leg_left_hip_pitch_joint
+    motor_id: 1
+    motor_model: RS06
+    can_interface: can0
+    direction: 1.0
+    offset: 0.0
+    lower: -1.898
+    upper: 0.981
+  - joint: leg_left_knee_pitch_joint
+    motor_id: 2
+    motor_model: RS06
+    can_interface: can0
+    direction: 1.0
+    offset: 0.0
+    lower: 0.0
+    upper: 2.443
+  - joint: leg_left_ankle_pitch_joint
+    motor_id: 3
+    motor_model: RS06
+    can_interface: can0
+    direction: 1.0
+    offset: 0.0
+    lower: -0.785
+    upper: 0.785
