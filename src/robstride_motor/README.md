@@ -95,6 +95,7 @@ ros2 run robstride_motor robstride_motor_node --ros-args \
 | `speed_limit` | `1.0` | CSP speed limit written at startup, rad/s |
 | `current_limit` | `3.0` | Current limit written at startup, A |
 | `feedback_rate` | `50.0` | Position/velocity polling rate, Hz |
+| `can_timeout` | `0.5` | Motor-side watchdog, s (`0` disables, max 10) |
 
 ## Topics
 
@@ -103,8 +104,30 @@ ros2 run robstride_motor robstride_motor_node --ros-args \
 | `motor/target_position` | `std_msgs/Float64` | Subscribe | Radians. Clamped to ±4π before being sent to the motor. |
 | `motor/actual_position` | `std_msgs/Float64` | Publish | Radians, read from `mechPos` (`0x7019`) at `feedback_rate`. |
 | `motor/actual_velocity` | `std_msgs/Float64` | Publish | Rad/s, read from `mechVel` (`0x701B`) right after the position. |
+| `motor/actual_torque` | `std_msgs/Float64` | Publish | Nm, from the motor's status frames. |
+| `motor/temperature` | `std_msgs/Float64` | Publish | °C, from the motor's status frames. |
+| `motor/status` | `diagnostic_msgs/DiagnosticStatus` | Publish | Level OK (running), WARN (not running) or ERROR (faults), with mode, faults, the last fault report, temperature and torque as values. |
+| `motor/clear_faults` | `std_srvs/Trigger` | Service | Clears faults and re-enables at the current position (the same safe startup sequence). |
 
-Each poll reads position then velocity with a 5 ms reply timeout, so a silent motor skips a sample instead of stalling the node. Nothing is published unless both reads succeed.
+Each poll first re-sends the current target (the watchdog keepalive), then reads position and velocity with a 5 ms reply timeout, so a silent motor skips a sample instead of stalling the node. Position and velocity are only published when both reads succeed. Torque, temperature and status are published each poll from the latest status frame, and stop (with a warning) if no status frame arrived in 200 ms.
+
+```bash
+ros2 topic echo /motor/status
+ros2 service call /motor/clear_faults std_srvs/srv/Trigger
+```
+
+### Status, faults and the watchdog
+
+At startup the node turns on the motor's **active reporting** (comm type `0x18`), so the motor sends a status frame (comm type `2`/`0x18`) every 10 ms. Each one carries:
+
+- **mode**: reset (disabled), calibrating or running
+- **fault flags**: undervoltage, overcurrent, overtemperature, magnetic encoder fault, stall, uncalibrated
+- **position, velocity, torque**: 16-bit values over the model's range (RS03: ±20 rad/s, ±60 Nm; RS06: ±50 rad/s, ±36 Nm). Only torque is published from here; position and velocity come from the float registers above.
+- **temperature**, in 0.1 °C steps
+
+The node also decodes **fault reports** (comm type `0x15`: driver fault, overvoltage, per-phase overcurrent, stall overload, position-init and hardware-ID faults, and the overtemperature warning). Changes in mode or faults are logged once.
+
+The **CAN watchdog** (`canTimeout`, parameter `0x7028`, 20000 counts per second) makes the motor stop itself if it hears nothing for `can_timeout`. That covers what the node cannot: a crash, `SIGKILL`, the computer losing power, or a pulled CAN adapter. While the node runs, its 50 Hz keepalive holds the motor at its last target even if nothing upstream publishes. After a fault or a watchdog stop, the motor is in reset mode and ignores targets; call `motor/clear_faults` to recover. That service runs the startup sequence again, so the motor re-enables where it is instead of jumping.
 
 Example:
 ```bash
@@ -119,14 +142,17 @@ This is the part that took the most debugging to get right, so it's worth writin
 RobStride's protocol packs a 29-bit extended CAN ID as: 5-bit comm type (bits 28–24), a 16-bit middle field (bits 23–8, meaning depends on comm type), and the target motor's ID (bits 7–0). Our host ID is `0xFF`.
 
 **Startup sequence** (all verified byte-for-byte against real `candump` captures):
-1. **Disable** the motor (comm type `4`) — clean slate before reconfiguring.
+1. **Disable** the motor and **clear latched faults** (comm type `4`, data byte 0 = `1`) — clean slate before reconfiguring.
 2. **Write `run_mode = 5`** (parameter `0x7005`, comm type `0x12`) — this switches the motor into CSP (Cyclic Synchronous Position) mode.
 3. **Write speed limit** (parameter `0x7017`) and **current limit** (parameter `0x7018`) as floats — `speed_limit` and `current_limit`, conservative by default (1.0 rad/s, 3.0 A) for safety on a fresh bring-up.
-4. **Read the motor's actual current position** (parameter `0x7019`, "mechPos", comm type `0x11` request / response).
-5. **Write that same value back as the initial position target** (parameter `0x7016`, "loc_ref"). This step is critical — skip it, and the motor can jump violently toward whatever stale target it had stored from a previous session the instant it's enabled.
-6. **Enable** the motor (comm type `3`).
+4. **Write the CAN timeout** (parameter `0x7028`, `uint32`) and **turn on active reporting** (comm type `0x18`).
+5. **Read the motor's actual current position** (parameter `0x7019`, "mechPos", comm type `0x11` request / response).
+6. **Write that same value back as the initial position target** (parameter `0x7016`, "loc_ref"). This step is critical — skip it, and the motor can jump violently toward whatever stale target it had stored from a previous session the instant it's enabled.
+7. **Enable** the motor (comm type `3`).
 
-If a startup CAN write fails or the starting position cannot be read as a finite value, the node attempts a stop, closes the socket, and exits with an error. Successful socket writes only confirm local transmission acceptance; they do not acknowledge that the motor applied the configuration. Normal shutdown and exception unwinding also attempt a stop before closing the socket.
+Steps 1–3 and the original position handling were verified against `candump` captures. The fault clearing, CAN timeout, active reporting and status/fault decoding in steps 1 and 4 follow the RobStride manuals as implemented in other open-source drivers ([motorbridge](https://github.com/motorbridge/motorbridge)), and have not been run on our motors yet.
+
+If a startup CAN write fails or the starting position cannot be read as a finite value, the node attempts a stop, closes the socket, and exits with an error. Successful socket writes only confirm local transmission acceptance; they do not acknowledge that the motor applied the configuration. Normal shutdown and exception unwinding also turn off active reporting and attempt a stop before closing the socket.
 
 From then on, every new value published to `motor/target_position` is just written directly to `loc_ref` — the motor's own internal position-control loop (with factory-tuned gains we never touch) handles actually getting there smoothly. We do **not** send raw torque/Kp/Kd values ourselves (that's a different scheme, "MIT mode," which we tried first and abandoned — CSP mode is what RobStride's own verified working scripts use, and switching to it is what fixed the motor only weakly rumbling instead of actually tracking commanded positions).
 
@@ -157,7 +183,7 @@ Multiple nodes can safely share the same physical `can0` socket — SocketCAN is
 colcon test --packages-select robstride_motor
 colcon test-result --verbose
 ```
-Unit tests cover CAN ID packing and parameter encode/decode against real captured byte values, plus position clamping — see `test/test_robstride_motor.cpp`. Node safety tests exercise invalid IDs, every startup write failure, non-finite starting positions, and cleanup during exceptions using a fake CAN transport. The discovery script is also tested with mocked CAN utilities and the system default awk.
+Unit tests cover CAN ID packing and parameter encode/decode against real captured byte values, plus position clamping — see `test/test_robstride_motor.cpp`. Protocol tests also cover the CAN timeout, fault-clearing and active-report frames, and decoding status frames and fault reports. Node safety tests exercise invalid IDs and parameters, every startup write failure, non-finite starting positions, the startup and shutdown frame sequence, status and fault frames arriving during a read, and cleanup during exceptions using a fake CAN transport. The discovery script is also tested with mocked CAN utilities and the system default awk.
 
 ## Troubleshooting
 
@@ -169,4 +195,4 @@ Unit tests cover CAN ID packing and parameter encode/decode against real capture
 
 - Single motor per node; no coordinated multi-joint motion yet.
 - Only RS06 and RS03 are in the `motor_model` table (`kMotorLimitsByModel`); RS03 has not been run on hardware yet.
-- No CAN watchdog or fault-code handling — a motor-side fault isn't currently surfaced back to ROS.
+- Status decoding, fault reports, the CAN timeout and active reporting are untested on hardware. Check `motor/status` and `candump can0` on first bring-up; if no status frames arrive, the node warns and keeps running on position/velocity alone.

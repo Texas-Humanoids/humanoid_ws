@@ -107,3 +107,7 @@ swings over the full joint range regardless of the stick.
 
 `ros2 topic echo /leg_left_knee_pitch/motor/actual_velocity` and
 `/policy/joint_targets` show the same numbers live.
+`/leg_left_knee_pitch/motor/status` shows each motor's mode, faults,
+temperature and torque. If a motor faults or its CAN timeout trips (for
+example after the container is killed), it stops and ignores targets until
+`ros2 service call /leg_left_knee_pitch/motor/clear_faults std_srvs/srv/Trigger`.
