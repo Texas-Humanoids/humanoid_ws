@@ -1,0 +1,25 @@
+[Unit]
+Description=Tabletop bench camera live feed (Arducam USB, MJPEG over HTTP)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+EnvironmentFile=/etc/default/bench-camera
+ExecStart=/usr/bin/ustreamer \
+    --device=${CAMERA_DEVICE} \
+    --format=MJPEG \
+    --encoder=HW \
+    --resolution=${CAMERA_RESOLUTION} \
+    --desired-fps=${CAMERA_FPS} \
+    --host=0.0.0.0 \
+    --port=${CAMERA_PORT} \
+    --drop-same-frames=30 \
+    --device-timeout=2 \
+    --slowdown
+Restart=always
+RestartSec=2
+User=humanoids
+SupplementaryGroups=video
+
+[Install]
+WantedBy=multi-user.target
