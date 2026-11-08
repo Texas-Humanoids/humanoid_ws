@@ -23,6 +23,18 @@ Speeds and input settings live in `config/gamepad_node.yaml`; override the file
 with `config:=/path/to/file.yaml`. Keyboard speed is multiplied by `keyboard_scaling`.
 Keyboard input is global while the node runs. Opposite keys cancel; axes combine.
 
+An Xbox Wireless controller over Bluetooth reports a different layout (LB is
+button 6, right stick X is axis 2). Use the matching file:
+`ros2 launch gamepad_node gamepad_node.launch.py config:=$(ros2 pkg prefix gamepad_node)/share/gamepad_node/config/gamepad_node_bluetooth.yaml`.
+Enable, forward, side-to-side and stop-on-release were checked this way on the
+Jetson. Button event names still follow the wired layout (LB is reported as
+`BACK`), and the turn sign needs one more check.
+
+In Docker, the container needs the input devices and their group, e.g.
+`-v /dev/input:/dev/input --device-cgroup-rule "c 13:* rmw" --group-add $(getent group input | cut -d: -f3)`.
+Mounting `/dev/input` (rather than `--device`) keeps working when a Bluetooth
+controller reconnects under a new event number.
+
 Hold LB to enable the controller. Releasing LB or losing controller input sends a
 stop. Keyboard device loss or queue overflow clears held keys; after overflow,
 `EVIOCGKEY` restores current state at the next synchronization boundary. Failed

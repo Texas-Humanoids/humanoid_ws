@@ -1,0 +1,18 @@
+gamepad_node:
+  ros__parameters:
+    # Full-input speed; keyboard commands are multiplied by keyboard_scaling.
+    scale.linear.x: 0.5  # forward/back, m/s
+    scale.linear.y: 0.5  # side to side, m/s
+    scale.angular.z: 1.0  # turning, rad/s
+    keyboard_scaling: 0.8
+    # Xbox Wireless / Series controller over Bluetooth, from joy_node.
+    # Checked on the Jetson: LB is button 6 and right stick X is axis 2
+    # (gamepad_node.yaml has the wired/X-input layout: LB 4, right stick X 3).
+    axis_forward: 1
+    axis_lateral: 0
+    axis_turn: 2
+    enable_button: 6  # LB; -1 disables the enable button
+    joy_timeout: 0.5  # seconds; 0 disables the watchdog
+    keyboard_device: ""  # empty = auto-detect a local /dev/input keyboard
+    publish_rate: 20.0  # keyboard command frequency, Hz
+    print_velocity: true
