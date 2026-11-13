@@ -287,7 +287,8 @@ def test_rejects_motor_for_unknown_joint():
 
 
 def test_stand_ramps_to_default_then_walk_forwards_policy(harness):
-    h = harness(walk_event='A pressed', stand_ramp_time=0.5)
+    # A long target timeout, so pausing the fake policy below cannot disarm the bridge.
+    h = harness(walk_event='A pressed', stand_ramp_time=0.5, target_timeout=2.0)
     # Joint space: hip 0.3 (default 0.0), knee 0.0 (default 0.4; motor = -0 + 1.0).
     h.motor_state = {'hip': (0.3, 0.0), 'knee': (1.0, 0.0)}
 
@@ -303,7 +304,12 @@ def test_stand_ramps_to_default_then_walk_forwards_policy(harness):
     obs = h.observations[-1].data
     assert list(obs[15:18]) == pytest.approx([0.0, 0.0, 0.0])  # no last action while standing
 
+    # WALK starts from a zero last action, not the policy's answers to the STAND observations.
     h.buttons.publish(String(data='A pressed'))
+    h.wait(lambda: 'WALK:' in h.diagnostics(), step=h.publish_sensors)
+    seen = len(h.observations)
+    h.wait(lambda: len(h.observations) > seen, step=h.publish_sensors)
+    assert list(h.observations[-1].data[15:18]) == pytest.approx([0.0, 0.0, 0.0])
     h.wait(lambda: h.commands['hip'][-1].data == pytest.approx(-0.25), step=step)
     assert 'WALK' in h.diagnostics()
 
