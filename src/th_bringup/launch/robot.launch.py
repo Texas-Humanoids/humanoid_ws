@@ -166,6 +166,8 @@ def launch_pipeline(context):
     if sim:
         actions.append(sim_node(arg, robot, motors, control_mode, gains, profile))
         motors = []
+    elif imu.get('driver') and arg('require_imu') == 'true':
+        actions.append(imu_node(arg, imu))
     for motor in motors:
         params = {
             'motor_id': int(motor['motor_id']),
@@ -195,6 +197,21 @@ def launch_pipeline(context):
                  arg('imu_topic') + '|/.*/motor/.*'],
             output='screen'))
     return actions
+
+
+def imu_node(arg, imu):
+    """The IMU driver named by the robot yaml's imu.driver."""
+    if imu['driver'] != 'vectornav':
+        raise RuntimeError(f'unknown imu.driver {imu["driver"]}; supported: vectornav')
+    return Node(
+        package='vectornav_imu', executable='vectornav_imu_node', name='vectornav_imu',
+        parameters=[{
+            'port': imu.get('port', '/dev/ttyUSB0'),
+            'baud': int(imu.get('baud', 115200)),
+            'rate': float(imu.get('rate', 200.0)),
+            'imu_topic': arg('imu_topic'),
+        }],
+        output='screen')
 
 
 def sim_node(arg, robot, motors, control_mode, gains, profile):
