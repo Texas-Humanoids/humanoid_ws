@@ -269,11 +269,19 @@ private:
     send_to_motors(msg.position);
   }
 
-  void send_to_motors(const std::vector<double> & joint_targets)
+  // During the STAND ramp the limits are widened to include where the joint started, so a
+  // joint found outside its limits (bench, or a calibration error) eases back in instead of
+  // jumping to the limit. The ramp only moves toward the default pose, never further out.
+  void send_to_motors(const std::vector<double> & joint_targets, bool from_ramp_start = false)
   {
     for (const auto & motor : motors_) {
+      tb::JointMotor calibration = motor.calibration;
+      if (from_ramp_start) {
+        calibration.lower = std::min(calibration.lower, ramp_start_[motor.joint]);
+        calibration.upper = std::max(calibration.upper, ramp_start_[motor.joint]);
+      }
       std_msgs::msg::Float64 command;
-      command.data = tb::joint_to_motor(motor.calibration, joint_targets[motor.joint]);
+      command.data = tb::joint_to_motor(calibration, joint_targets[motor.joint]);
       motor.command->publish(command);
     }
   }
@@ -434,7 +442,7 @@ private:
     if (mode_ == Mode::kStand) {
       const double alpha =
         std::chrono::duration<double>(SteadyClock::now() - ramp_time_).count() / stand_ramp_time_;
-      send_to_motors(tb::interpolate(ramp_start_, defaults_, alpha));
+      send_to_motors(tb::interpolate(ramp_start_, defaults_, alpha), true);
     }
     geometry_msgs::msg::Vector3 g;
     g.x = in.gravity[0];
