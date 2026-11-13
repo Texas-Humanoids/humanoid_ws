@@ -3,7 +3,8 @@
 This C++ ROS 2 node runs the Berkeley Humanoid Lite ONNX policy. It subscribes
 to a complete, model-ready observation and publishes named joint targets. It
 does not assemble observations, enable motors, or publish actuator commands.
-Issue #18 owns the gamepad/feedback integration and motor interface.
+[th_policy_bridge](../th_policy_bridge/README.md) builds the observations and
+routes targets to the motors.
 
 ## Build and run
 
@@ -82,9 +83,7 @@ acceptance checks.
 
 ## Integration boundary
 
-The gamepad publishes `/cmd_vel` (`geometry_msgs/msg/Twist`), not a model-ready
-observation. An observation builder must combine it with fresh IMU and all 22
-joint positions and velocities. The current RS06 motor node accepts one
-`std_msgs/msg/Float64` target, not this 22-joint `JointState`. A downstream
-controller must map joint names to motors, apply calibrated directions/offsets
-and physical limits, and own enable/stop behavior before hardware can move.
+[th_policy_bridge](../th_policy_bridge/README.md) builds the observation from
+`/cmd_vel`, the IMU and motor feedback. It also maps these targets to
+per-motor commands, with calibration, physical limits and gamepad arming.
+`ros2 launch th_bringup robot.launch.py` starts the full pipeline.

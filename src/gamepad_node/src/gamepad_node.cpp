@@ -162,8 +162,8 @@ private:
   {
     axes_.forward = declare_parameter<int>("axis_forward", 1);
     axes_.lateral = declare_parameter<int>("axis_lateral", 0);
-    axes_.turn = declare_parameter<int>("axis_turn", 3);
-    enable_button_ = declare_parameter<int>("enable_button", 4);
+    axes_.turn = declare_parameter<int>("axis_turn", 2);
+    enable_button_ = declare_parameter<int>("enable_button", 9);
     joy_timeout_ = declare_parameter<double>("joy_timeout", 0.5);
     if (!std::isfinite(joy_timeout_) || joy_timeout_ < 0.0) {
       throw std::invalid_argument("joy_timeout must be >= 0 (0 disables the timeout)");

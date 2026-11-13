@@ -3,7 +3,9 @@ ARG TARGETARCH
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl \
+    can-utils iproute2 \
     libopencv-dev \
+    ros-jazzy-joy \
     python3-colcon-common-extensions \
     python3-numpy \
     python3-pip \

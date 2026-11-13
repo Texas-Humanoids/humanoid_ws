@@ -1,0 +1,8 @@
+# Give the USB-CAN adapter (gs_usb / CANable) a fixed name. Without this it
+# comes up as can0 or can1 depending on whether gs_usb or the Jetson's built-in
+# mttcan driver registers first at boot.
+[Match]
+Driver=gs_usb
+
+[Link]
+Name=can_usb

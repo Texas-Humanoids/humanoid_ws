@@ -1,4 +1,4 @@
-"""Launch gamepad_node (and joy_node in controller mode)."""
+"""Launch gamepad_node (and joy's game_controller_node in controller mode)."""
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
@@ -9,7 +9,7 @@ from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
-    """Start joy_node (controller mode only) and gamepad_node."""
+    """Start game_controller_node (controller mode only) and gamepad_node."""
     input_mode = LaunchConfiguration('input_mode')
     config = LaunchConfiguration('config')
 
@@ -23,7 +23,9 @@ def generate_launch_description():
                 [FindPackageShare('gamepad_node'), 'config', 'gamepad_node.yaml']),
             description='Parameter file for gamepad_node'),
         Node(
-            package='joy', executable='joy_node', name='joy_node',
+            # Unlike joy_node, game_controller_node reports the same button and axis
+            # order for every controller SDL recognizes, including Xbox over Bluetooth.
+            package='joy', executable='game_controller_node', name='game_controller_node',
             parameters=[{'autorepeat_rate': 20.0}],
             condition=LaunchConfigurationEquals('input_mode', 'controller')),
         Node(
