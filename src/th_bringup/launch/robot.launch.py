@@ -15,6 +15,10 @@ MOTOR_FIELDS = (
     'joint', 'motor_id', 'motor_model', 'can_interface', 'direction', 'offset', 'lower', 'upper')
 
 
+# Seconds a policy target stays valid. The bridge disarms once targets are this old, and each
+# MIT motor drops to damping at the same age, so the two never disagree about a stalled policy.
+TARGET_TIMEOUT = 0.2
+
 # Observation term sizes; joint-sized terms use None.
 OBS_TERMS = {
     'velocity_command': 3, 'base_ang_vel': 3, 'projected_gravity': 3, 'joint_pos_rel': None,
@@ -142,6 +146,7 @@ def launch_pipeline(context):
                 'joint_target_topic': profile['joint_target_topic'],
                 'imu_topic': arg('imu_topic'),
                 'require_imu': arg('require_imu') == 'true',
+                'target_timeout': TARGET_TIMEOUT,
                 **bridge_extra,
                 **mapping,
             }],
@@ -161,6 +166,7 @@ def launch_pipeline(context):
             params['kp'], params['kd'] = gains[motor['joint']]
             params['damping_kd'] = float(motor.get('damping_kd', robot.get('damping_kd', 1.0)))
             params['feedback_rate'] = float(robot.get('feedback_rate', 100.0))
+            params['target_timeout'] = TARGET_TIMEOUT
             if 'torque_limit' in motor:
                 params['torque_limit'] = float(motor['torque_limit'])
         actions.append(Node(
