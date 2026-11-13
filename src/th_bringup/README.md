@@ -231,3 +231,59 @@ Observation normalization must be baked into the ONNX.
    holds the pose, then BACK.
 6. **Walk.** With the gantry slack but catching, press START, wait for the
    ramp, press A with the stick centered, then hold LB and push forward gently.
+
+### Simulated robot (`sim:=true`)
+
+`sim:=true` replaces the ten `robstride_motor_node`s and the IMU driver with
+[th_sim](../th_sim/th_sim/mujoco_sim_node.py), a MuJoCo WalkerV2
+([MJCF](../th_description/robots/walker_v2/)) that speaks the same topics. The
+gamepad, `policy_node` and `policy_bridge` run unchanged, so this tests the
+deploy code itself (observation layout, signs, calibration, IMU frame, arming,
+timing) before the hardware does. The sim:
+
+- reads the same robot yaml: it reports `actual_position`/`actual_velocity` in
+  motor space using each `direction`/`offset` (a null `offset` reads as 0 and
+  `motor_id` is ignored), and reports the IMU in the frame that `imu.rotation`
+  and `imu.world_frame` describe, so the bridge must undo both correctly;
+- emulates MIT mode as `robstride_motor_node` does: PD with the spec `kp`/`kd`
+  while targets are under 0.2 s old, otherwise `kp = 0`, `kd = damping_kd`;
+  torque saturates at the model peak (RS02 17, RS03 60, RS06 36 Nm) or
+  `torque_limit`; the PD runs every 1 ms physics step;
+- holds each target back `sim_command_delay` (0.01 s) before the motor uses it,
+  standing in for the CAN and ROS hops (training randomizes 0-0.02 s);
+- runs in real time at 1 kHz, with feedback at `feedback_rate` (100 Hz), the
+  IMU at 200 Hz, and the ground-truth base pose on `/mujoco_sim/base_pose`;
+- holds the base on a **gantry** (feet 1 cm above the floor) until the bridge
+  reaches `sim_gantry_release` (`WALK` by default; `STAND`, `never`, or `off`).
+  `ros2 service call /mujoco_sim/reset std_srvs/srv/Trigger` puts it back on
+  the gantry, and `/mujoco_sim/release` drops it.
+
+```bash
+# in the container (humanoid-ros:cpu); mujoco is not in the image yet
+python3 -m pip install --break-system-packages -r src/th_sim/requirements.txt
+colcon build --packages-up-to th_bringup th_sim && source install/setup.bash
+ros2 launch th_bringup robot.launch.py sim:=true \
+  motors_config:=src/th_bringup/config/walker_v2_robot.yaml \
+  policy_spec:=policies/walker_v2/policy_spec.json \
+  model_path:=policies/walker_v2/policy.onnx walk_event:='A pressed'
+# second shell: presses START, then A, checks rates and that the robot stays up
+python3 tools/walker/sim_check.py policies/walker_v2/policy_spec.json --vx 0.3
+```
+
+Without a controller, publish the buttons yourself:
+`ros2 topic pub --once /gamepad/button_event std_msgs/msg/String "data: 'START pressed'"`.
+
+**Viewing it.** On a Linux desktop, add `sim_viewer:=true`. From Docker on the
+Mac, add `sim_stream_to:=host.docker.internal:9870` and run
+`mjpython tools/walker/sim_viewer.py` on the Mac (`pip install mujoco`).
+
+**Results with the example spec (2026-11-13, zero-action ONNX = hold the
+default pose).** Observation, joint targets and motor commands ran at 50 Hz,
+IMU at 200 Hz, motor feedback at 100 Hz. START ramps to the default pose, and A
+switches to WALK. With the example gains (ankle kp 30) the robot topples
+backward about 2 s after the gantry drops and the tilt cutoff disarms. The
+ankles are too soft to hold the pose (m·g·h ≈ 70 Nm/rad), so a trained policy
+has to balance actively from the first step. With ankle kp 80 (test copy only)
+it stands through STAND and 10 s of WALK. The same run with a robot yaml of
+reversed directions, nonzero offsets, and a rotated NED IMU also stands, which
+checks the bridge's calibration and IMU math end to end.

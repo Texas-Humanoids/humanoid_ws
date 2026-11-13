@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>th_sim</name>
+  <version>0.1.0</version>
+  <description>MuJoCo stand-in for the robot's RobStride motors (MIT mode) and IMU, for testing the deploy stack.</description>
+  <maintainer email="noreply@github.com">Texas Humanoids Controls</maintainer>
+  <license>MIT</license>
+
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>std_srvs</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+  <!-- mujoco comes from pip (requirements.txt). -->
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

@@ -26,13 +26,23 @@ OBS_TERMS = {
 }
 
 
-def load_robot(path):
-    """Read the motor list plus optional robot-wide settings (imu, control_mode, damping_kd)."""
+SIM_DEFAULTS = {'motor_id': None, 'offset': 0.0}
+
+
+def load_robot(path, sim=False):
+    """Read the motor list plus optional robot-wide settings (imu, control_mode, damping_kd).
+
+    In sim, motor IDs are not used and a missing offset reads as 0.
+    """
     with open(path) as f:
         robot = yaml.safe_load(f) or {}
     motors = robot.get('motors') or []
     ids = set()
-    for motor in motors:
+    for index, motor in enumerate(motors):
+        if sim:
+            for field, default in SIM_DEFAULTS.items():
+                if motor.get(field) is None:
+                    motor[field] = index if default is None else default
         missing = [field for field in MOTOR_FIELDS if motor.get(field) is None]
         if missing:
             raise RuntimeError(
@@ -77,7 +87,8 @@ def launch_pipeline(context):
     def arg(name):
         return LaunchConfiguration(name).perform(context)
 
-    robot, motors = load_robot(arg('motors_config'))
+    sim = arg('sim') == 'true'
+    robot, motors = load_robot(arg('motors_config'), sim)
     spec_path = arg('policy_spec')
     bridge_extra = {}
     gains = {}
@@ -152,6 +163,9 @@ def launch_pipeline(context):
             }],
             output='screen'),
     ]
+    if sim:
+        actions.append(sim_node(arg, robot, motors, control_mode, gains, profile))
+        motors = []
     for motor in motors:
         params = {
             'motor_id': int(motor['motor_id']),
@@ -181,6 +195,39 @@ def launch_pipeline(context):
                  arg('imu_topic') + '|/.*/motor/.*'],
             output='screen'))
     return actions
+
+
+def sim_node(arg, robot, motors, control_mode, gains, profile):
+    """th_sim's MuJoCo robot in place of the robstride motor nodes and the IMU driver."""
+    if control_mode != 'mit' or not motors:
+        raise RuntimeError('sim:=true emulates MIT-mode motors: needs control_mode mit and motors')
+    defaults = dict(zip(profile['joint_names'], profile['default_joint_positions']))
+    imu = robot.get('imu') or {}
+    return Node(
+        package='th_sim', executable='mujoco_sim_node', name='mujoco_sim',
+        parameters=[{
+            'model_path': arg('sim_model'),
+            'joints': [m['joint'] for m in motors],
+            'motor_namespaces': [motor_namespace(m['joint']) for m in motors],
+            'motor_models': [m['motor_model'] for m in motors],
+            'directions': [float(m['direction']) for m in motors],
+            'offsets': [float(m['offset']) for m in motors],
+            'kp': [gains[m['joint']][0] for m in motors],
+            'kd': [gains[m['joint']][1] for m in motors],
+            'torque_limits': [float(m.get('torque_limit', 0.0)) for m in motors],
+            'damping_kd': float(robot.get('damping_kd', 1.0)),
+            'target_timeout': TARGET_TIMEOUT,
+            'command_delay': float(arg('sim_command_delay')),
+            'feedback_rate': float(robot.get('feedback_rate', 100.0)),
+            'initial_joint_positions': [float(defaults[m['joint']]) for m in motors],
+            'imu_topic': arg('imu_topic'),
+            'imu_rotation': [float(v) for v in imu.get('rotation', [1.0, 0.0, 0.0, 0.0])],
+            'imu_world_frame': imu.get('world_frame', 'enu'),
+            'gantry_release': arg('sim_gantry_release'),
+            'viewer': arg('sim_viewer') == 'true',
+            'stream_to': arg('sim_stream_to'),
+        }],
+        output='screen')
 
 
 def generate_launch_description():
@@ -213,6 +260,25 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'require_imu', default_value='true', choices=['true', 'false'],
             description='false assumes upright and still, for bench tests without an IMU'),
+        DeclareLaunchArgument(
+            'sim', default_value='false', choices=['true', 'false'],
+            description='Simulate motors and IMU in MuJoCo (th_sim) instead of the robstride nodes'),
+        DeclareLaunchArgument(
+            'sim_model',
+            default_value='src/th_description/robots/walker_v2/mjcf/scene.xml',
+            description='MuJoCo scene for sim:=true, relative to the current directory or absolute'),
+        DeclareLaunchArgument(
+            'sim_gantry_release', default_value='WALK',
+            description='Bridge mode that drops the sim gantry: STAND, WALK, never, or off (no gantry)'),
+        DeclareLaunchArgument(
+            'sim_command_delay', default_value='0.01',
+            description='Seconds before a sim motor uses a target (training delays 0-0.02 s)'),
+        DeclareLaunchArgument(
+            'sim_viewer', default_value='false', choices=['true', 'false'],
+            description='Open the MuJoCo viewer (needs a display)'),
+        DeclareLaunchArgument(
+            'sim_stream_to', default_value='',
+            description='host:port to stream sim state to tools/walker/sim_viewer.py'),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(PathJoinSubstitution(
                 [FindPackageShare('gamepad_node'), 'launch', 'gamepad_node.launch.py'])),
