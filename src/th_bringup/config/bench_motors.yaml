@@ -8,7 +8,7 @@ motors:
   - joint: leg_left_hip_pitch_joint
     motor_id: 1
     motor_model: RS06
-    can_interface: can0
+    can_interface: can_usb
     direction: 1.0
     offset: 0.0
     lower: -1.898
@@ -16,7 +16,7 @@ motors:
   - joint: leg_left_knee_pitch_joint
     motor_id: 2
     motor_model: RS06
-    can_interface: can0
+    can_interface: can_usb
     direction: 1.0
     offset: 0.0
     lower: 0.0
@@ -24,7 +24,7 @@ motors:
   - joint: leg_left_ankle_pitch_joint
     motor_id: 3
     motor_model: RS06
-    can_interface: can0
+    can_interface: can_usb
     direction: 1.0
     offset: 0.0
     lower: -0.785

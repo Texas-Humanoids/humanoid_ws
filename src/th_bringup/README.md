@@ -41,7 +41,7 @@ motors:
   - joint: leg_left_knee_pitch_joint   # must be a policy joint name
     motor_id: 2                        # from find_motor_id.sh
     motor_model: RS06                  # RS03 or RS06
-    can_interface: can0
+    can_interface: can_usb
     direction: 1.0                     # motor = direction * joint + offset
     offset: 0.0
     lower: 0.0                         # physical joint limits, radians
@@ -62,14 +62,23 @@ motors to the left leg's hip, knee and ankle pitch joints.
    `bluetoothctl` (`scan on`, `pair <MAC>`, `trust <MAC>`, `connect <MAC>`).
    If it keeps disconnecting, update the controller's firmware from a
    Windows/Xbox console first.
-2. **CAN.** Wire CAN_H, CAN_L **and GND** to every motor, power the motors,
-   then `sudo ip link set can0 up type can bitrate 1000000`. See
+2. **CAN.** The motors are on the USB-CAN adapter. Linux names it `can0` or
+   `can1` depending on which CAN driver loads first at boot (the Jetson's
+   built-in CAN takes the other name), so give it a fixed name once:
+   ```bash
+   sudo cp tools/jetson/10-can-usb.link /etc/systemd/network/
+   sudo udevadm control --reload
+   sudo udevadm trigger --action=add /sys/class/net/can0 /sys/class/net/can1
+   ip -br link show type can   # the adapter is now can_usb
+   ```
+   Wire CAN_H, CAN_L **and GND** to every motor, power the motors, then
+   `sudo ip link set can_usb up type can bitrate 1000000`. See
    [robstride_motor](../robstride_motor/README.md) for details.
 3. **Container.** From the repo root on the Jetson:
    `docker compose --profile robot up -d --build`, then
    `docker compose exec robot bash`. This profile shares the host network
-   (for `can0`), `/dev` and udev (for the controller).
-4. **Motor IDs and offsets.** Run `src/robstride_motor/scripts/find_motor_id.sh can0`
+   (for CAN), `/dev` and udev (for the controller).
+4. **Motor IDs and offsets.** Run `src/robstride_motor/scripts/find_motor_id.sh can_usb`
    and put the real IDs and models (RS03/RS06) in `bench_motors.yaml`. Then
    measure each `offset` as described under
    [One-motor bench](#one-motor-bench-tested-on-the-jetson). With
@@ -113,9 +122,8 @@ swings over the full joint range regardless of the stick.
 
 [config/bench_one_motor.yaml](config/bench_one_motor.yaml) is the config the
 pipeline ran with on the Jetson on 2026-11-08: one RS06 (ID 1) on the USB CAN
-adapter (`can1`) standing in for the left hip pitch joint, with an Xbox
-Wireless controller over Bluetooth. Follow steps 1-6 above with `can1` in
-place of `can0`, then launch with:
+adapter (`can_usb`) standing in for the left hip pitch joint, with an Xbox
+Wireless controller over Bluetooth. Follow steps 1-6 above, then launch with:
 
 ```bash
 ros2 launch th_bringup robot.launch.py require_imu:=false \

@@ -39,7 +39,7 @@ services:
 
   # On the robot computer (e.g. Jetson Orin Nano): host networking for CAN, and
   # /dev plus udev so SDL can find a Bluetooth or USB controller. Runs as root
-  # so it can bring up can0 and read /dev/input.
+  # so it can bring up CAN and read /dev/input.
   robot:
     profiles: [robot]
     build:
