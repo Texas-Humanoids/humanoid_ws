@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "geometry_msgs/msg/twist.hpp"
+#include "geometry_msgs/msg/vector3.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/imu.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
@@ -36,6 +37,10 @@ bool fresh(const SteadyClock::time_point & stamp, double timeout)
 // Connects policy_node to the robot. Each tick it builds an observation from
 // /cmd_vel, the IMU and motor feedback; it forwards the policy's joint targets
 // to the motor nodes only while armed from the gamepad.
+//
+// With walk_event set, arming is two-step: arm_event ramps every joint from
+// where it is to the default pose and holds it (STAND), then walk_event hands
+// control to the policy (WALK). Without it, arm_event goes straight to WALK.
 class PolicyBridge : public rclcpp::Node
 {
 public:
@@ -58,10 +63,39 @@ public:
       "lower_limits", std::vector<double>{});
     const auto uppers = declare_parameter<std::vector<double>>(
       "upper_limits", std::vector<double>{});
-    const double rate = declare_parameter<double>("rate", 25.0);
+    const double rate = declare_parameter<double>("rate", 50.0);
+    layout_ = tb::parse_layout(
+      declare_parameter<std::vector<std::string>>("observation_terms", std::vector<std::string>{}),
+      declare_parameter<std::vector<double>>("observation_scales", std::vector<double>{}));
+    gait_period_ = declare_parameter<double>("gait_period", 0.0);
+    const auto imu_rotation = declare_parameter<std::vector<double>>(
+      "imu_rotation", std::vector<double>{1.0, 0.0, 0.0, 0.0});
+    const auto imu_world_frame = declare_parameter<std::string>("imu_world_frame", "enu");
+    max_tilt_ = declare_parameter<double>("max_tilt", 1.0);
+    walk_event_ = declare_parameter<std::string>("walk_event", "");
+    stand_ramp_time_ = declare_parameter<double>("stand_ramp_time", 2.0);
+    if (imu_rotation.size() != 4 || (imu_world_frame != "enu" && imu_world_frame != "ned") ||
+      !(gait_period_ >= 0.0) || !(stand_ramp_time_ > 0.0) || !(max_tilt_ >= 0.0))
+    {
+      throw std::invalid_argument(
+              "imu_rotation is [w, x, y, z], imu_world_frame is enu or ned, gait_period >= 0, "
+              "stand_ramp_time > 0, max_tilt >= 0 (0 disables)");
+    }
+    imu_to_base_ = {imu_rotation[0], imu_rotation[1], imu_rotation[2], imu_rotation[3]};
+    tb::rotate(imu_to_base_, {0.0, 0.0, 1.0});  // validates the quaternion
+    world_z_down_ = imu_world_frame == "ned";
+    if (std::find(layout_.terms.begin(), layout_.terms.end(), tb::Term::kGaitPhase) !=
+      layout_.terms.end() && gait_period_ <= 0.0)
+    {
+      throw std::invalid_argument("gait_phase observation needs gait_period > 0");
+    }
     cmd_vel_timeout_ = declare_parameter<double>("cmd_vel_timeout", 0.5);
     imu_timeout_ = declare_parameter<double>("imu_timeout", 0.1);
     feedback_timeout_ = declare_parameter<double>("feedback_timeout", 0.1);
+    // Once armed, a short sensor gap does not disarm: MIT motors keep tracking their last
+    // target and the policy runs on the last readings. Disarming mid-walk drops the robot,
+    // so only an outage longer than this does.
+    armed_dropout_timeout_ = declare_parameter<double>("armed_dropout_timeout", 0.3);
     target_timeout_ = declare_parameter<double>("target_timeout", 0.2);
     require_imu_ = declare_parameter<bool>("require_imu", true);
     arm_event_ = declare_parameter<std::string>("arm_event", "START pressed");
@@ -71,7 +105,8 @@ public:
       !std::all_of(defaults_.begin(), defaults_.end(), [](double v) {return std::isfinite(v);}) ||
       !std::isfinite(action_scale_) || action_scale_ == 0.0 ||
       !std::isfinite(rate) || rate <= 0.0 || !(cmd_vel_timeout_ > 0.0) ||
-      !(imu_timeout_ > 0.0) || !(feedback_timeout_ > 0.0) || !(target_timeout_ > 0.0))
+      !(imu_timeout_ > 0.0) || !(feedback_timeout_ > 0.0) || !(target_timeout_ > 0.0) ||
+      !(armed_dropout_timeout_ >= feedback_timeout_) || !(armed_dropout_timeout_ >= imu_timeout_))
     {
       throw std::invalid_argument("Invalid policy_bridge parameters");
     }
@@ -154,18 +189,28 @@ public:
     button_sub_ = create_subscription<std_msgs::msg::String>(
       declare_parameter<std::string>("button_topic", "/gamepad/button_event"), 10,
       [this](const std_msgs::msg::String & msg) {on_button(msg.data);});
+    gravity_pub_ = create_publisher<geometry_msgs::msg::Vector3>("~/projected_gravity", 10);
+    mode_pub_ = create_publisher<std_msgs::msg::String>("~/mode", rclcpp::QoS(1).transient_local());
+    publish_mode();
     observation_pub_ = create_publisher<std_msgs::msg::Float32MultiArray>(
       declare_parameter<std::string>("observation_topic", "/policy/observation"), 10);
     timer_ = create_wall_timer(
-      std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::duration<double>(1.0 / rate)),
+      std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::duration<double>(1.0 /
+      rate)),
       [this]() {on_tick();});
 
     RCLCPP_INFO(
-      get_logger(), "Bridging %zu motors. Disarmed; '%s' arms, '%s' disarms.",
-      motors_.size(), arm_event_.c_str(), disarm_event_.c_str());
+      get_logger(), "Bridging %zu motors at %.0f Hz, observation size %zu. Disarmed; '%s' %s, "
+      "'%s' disarms.", motors_.size(), rate, layout_.size(joint_names_.size()),
+      arm_event_.c_str(), walk_event_.empty() ? "arms" : "stands", disarm_event_.c_str());
+    if (!walk_event_.empty()) {
+      RCLCPP_INFO(get_logger(), "'%s' starts walking once standing.", walk_event_.c_str());
+    }
   }
 
 private:
+  enum class Mode { kDisarmed, kStand, kWalk };
+
   struct Motor
   {
     size_t joint{};  // index into joint_names_
@@ -181,10 +226,12 @@ private:
   void on_imu(const sensor_msgs::msg::Imu & msg)
   {
     try {
-      const auto gravity = tb::projected_gravity(
-        {msg.orientation.w, msg.orientation.x, msg.orientation.y, msg.orientation.z});
-      const std::array<double, 3> angular{
-        msg.angular_velocity.x, msg.angular_velocity.y, msg.angular_velocity.z};
+      // Both vectors arrive in the IMU frame; imu_to_base_ rotates them into the base frame.
+      const auto gravity = tb::rotate(imu_to_base_, tb::projected_gravity(
+            {msg.orientation.w, msg.orientation.x, msg.orientation.y, msg.orientation.z},
+          world_z_down_));
+      const auto angular = tb::rotate(imu_to_base_, {
+        msg.angular_velocity.x, msg.angular_velocity.y, msg.angular_velocity.z});
       if (!std::all_of(angular.begin(), angular.end(), [](double v) {return std::isfinite(v);})) {
         throw std::invalid_argument("IMU angular velocity is non-finite");
       }
@@ -210,26 +257,65 @@ private:
       return;
     }
     target_time_ = SteadyClock::now();
-    if (!armed_) {
+    if (mode_ != Mode::kWalk) {
       return;
     }
+    send_to_motors(msg.position);
+  }
+
+  void send_to_motors(const std::vector<double> & joint_targets)
+  {
     for (const auto & motor : motors_) {
       std_msgs::msg::Float64 command;
-      command.data = tb::joint_to_motor(motor.calibration, msg.position[motor.joint]);
+      command.data = tb::joint_to_motor(motor.calibration, joint_targets[motor.joint]);
       motor.command->publish(command);
     }
   }
 
-  // Why the robot is not ready to run, or nullptr when it is.
-  const char * not_ready() const
+  std::vector<double> measured_joints() const
   {
+    std::vector<double> q = defaults_;
+    for (const auto & motor : motors_) {q[motor.joint] = motor.position;}
+    return q;
+  }
+
+  void set_mode(Mode mode)
+  {
+    mode_ = mode;
+    publish_mode();
+  }
+
+  void publish_mode()
+  {
+    std_msgs::msg::String msg;
+    msg.data = mode_ == Mode::kDisarmed ? "DISARMED" : mode_ == Mode::kStand ? "STAND" : "WALK";
+    mode_pub_->publish(msg);
+  }
+
+  // Why the robot is not ready to run, or nullptr when it is. While armed, gaps up to
+  // armed_dropout_timeout are tolerated (and reported through *gap).
+  const char * not_ready(bool armed = false, const char ** gap = nullptr) const
+  {
+    const auto check = [&](const SteadyClock::time_point & stamp, double strict,
+      const char * stale, const char * late) -> const char * {
+        if (fresh(stamp, strict)) {
+          return nullptr;
+        }
+        if (armed && fresh(stamp, armed_dropout_timeout_)) {
+          if (gap != nullptr) {*gap = late;}
+          return nullptr;
+        }
+        return stale;
+      };
     for (const auto & motor : motors_) {
-      if (!fresh(motor.stamp, feedback_timeout_)) {
-        return "motor feedback is stale";
+      if (const char * r = check(motor.stamp, feedback_timeout_, "motor feedback is stale",
+          "motor feedback is late"))
+      {
+        return r;
       }
     }
-    if (require_imu_ && !fresh(imu_time_, imu_timeout_)) {
-      return "IMU data is stale";
+    if (require_imu_) {
+      return check(imu_time_, imu_timeout_, "IMU data is stale", "IMU data is late");
     }
     return nullptr;
   }
@@ -238,37 +324,86 @@ private:
   {
     if (event == disarm_event_) {
       disarm("disarm button");
-    } else if (event == arm_event_ && !armed_) {
+    } else if (event == arm_event_ && mode_ == Mode::kDisarmed) {
       const char * reason = not_ready();
-      if (reason == nullptr && !fresh(target_time_, target_timeout_)) {
+      if (reason == nullptr && walk_event_.empty() && !fresh(target_time_, target_timeout_)) {
         reason = "the policy is not publishing targets";
+      }
+      if (reason == nullptr && tilted()) {
+        reason = "the base is tilted past max_tilt";
       }
       if (reason != nullptr) {
         RCLCPP_WARN(get_logger(), "Not arming: %s", reason);
         return;
       }
-      armed_ = true;
-      RCLCPP_WARN(get_logger(), "ARMED: forwarding policy targets to %zu motors", motors_.size());
+      if (walk_event_.empty()) {
+        start_walking();
+      } else {
+        ramp_start_ = measured_joints();
+        ramp_time_ = SteadyClock::now();
+        set_mode(Mode::kStand);
+        RCLCPP_WARN(
+          get_logger(), "STAND: ramping %zu motors to the default pose over %.1f s; '%s' walks",
+          motors_.size(), stand_ramp_time_, walk_event_.c_str());
+      }
+    } else if (!walk_event_.empty() && event == walk_event_ && mode_ == Mode::kStand) {
+      if (!ramp_done()) {
+        RCLCPP_WARN(get_logger(), "Not walking yet: still ramping to the default pose");
+      } else if (!fresh(target_time_, target_timeout_)) {
+        RCLCPP_WARN(get_logger(), "Not walking: the policy is not publishing targets");
+      } else {
+        start_walking();
+      }
     }
+  }
+
+  void start_walking()
+  {
+    walk_time_ = SteadyClock::now();
+    set_mode(Mode::kWalk);
+    RCLCPP_WARN(get_logger(), "WALK: forwarding policy targets to %zu motors", motors_.size());
+  }
+
+  bool ramp_done() const
+  {
+    return std::chrono::duration<double>(SteadyClock::now() - ramp_time_).count() >=
+           stand_ramp_time_;
+  }
+
+  // Angle between the base z axis and vertical exceeds max_tilt (only with an IMU).
+  bool tilted() const
+  {
+    return require_imu_ && max_tilt_ > 0.0 &&
+           std::acos(std::clamp(-gravity_[2], -1.0, 1.0)) > max_tilt_;
   }
 
   void disarm(const char * reason)
   {
-    if (armed_) {
-      armed_ = false;
-      RCLCPP_WARN(get_logger(), "Disarmed (%s); motors hold their last target", reason);
+    if (mode_ != Mode::kDisarmed) {
+      set_mode(Mode::kDisarmed);
+      RCLCPP_WARN(
+        get_logger(), "Disarmed (%s); targets stop (CSP motors hold, MIT motors damp)", reason);
     }
   }
 
   void on_tick()
   {
-    if (armed_ && !fresh(target_time_, target_timeout_)) {
+    if (mode_ == Mode::kWalk && !fresh(target_time_, target_timeout_)) {
       disarm("policy targets timed out");
     }
-    if (const char * reason = not_ready()) {
+    if (mode_ != Mode::kDisarmed && tilted()) {
+      disarm("base tilt exceeded max_tilt (fall)");
+    }
+    const char * gap = nullptr;
+    if (const char * reason = not_ready(mode_ != Mode::kDisarmed, &gap)) {
       disarm(reason);
       RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000, "Waiting: %s", reason);
       return;
+    }
+
+    if (gap != nullptr) {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 1000, "%s; running on the last readings", gap);
     }
 
     tb::ObservationInputs in;
@@ -282,11 +417,29 @@ private:
       in.joint_positions[motor.joint] = motor.position;
       in.joint_velocities[motor.joint] = motor.velocity;
     }
-    in.previous_actions = previous_actions_;
+    // While standing the ramp, not the policy, drives the joints, so its last action is zero.
+    in.previous_actions = mode_ == Mode::kStand ?
+      std::vector<double>(joint_names_.size(), 0.0) : previous_actions_;
+    in.gait_phase = 0.0;
+    if (mode_ == Mode::kWalk && gait_period_ > 0.0) {
+      const double t = std::chrono::duration<double>(SteadyClock::now() - walk_time_).count();
+      in.gait_phase = std::fmod(t / gait_period_, 1.0);
+    }
+
+    if (mode_ == Mode::kStand) {
+      const double alpha =
+        std::chrono::duration<double>(SteadyClock::now() - ramp_time_).count() / stand_ramp_time_;
+      send_to_motors(tb::interpolate(ramp_start_, defaults_, alpha));
+    }
+    geometry_msgs::msg::Vector3 g;
+    g.x = in.gravity[0];
+    g.y = in.gravity[1];
+    g.z = in.gravity[2];
+    gravity_pub_->publish(g);
 
     std_msgs::msg::Float32MultiArray msg;
     try {
-      msg.data = tb::build_observation(in, defaults_);
+      msg.data = tb::build_observation(in, defaults_, layout_);
     } catch (const std::exception & error) {
       RCLCPP_ERROR_THROTTLE(get_logger(), *get_clock(), 1000, "%s", error.what());
       return;
@@ -301,11 +454,22 @@ private:
   double cmd_vel_timeout_{};
   double imu_timeout_{};
   double feedback_timeout_{};
+  double armed_dropout_timeout_{};
   double target_timeout_{};
   bool require_imu_{true};
   std::string arm_event_;
   std::string disarm_event_;
-  bool armed_{false};
+  std::string walk_event_;
+  Mode mode_{Mode::kDisarmed};
+  tb::ObservationLayout layout_;
+  double gait_period_{};
+  tb::Quaternion imu_to_base_{1.0, 0.0, 0.0, 0.0};
+  bool world_z_down_{false};
+  double max_tilt_{};
+  double stand_ramp_time_{};
+  std::vector<double> ramp_start_;
+  SteadyClock::time_point ramp_time_{};
+  SteadyClock::time_point walk_time_{};
 
   std::array<double, 3> command_{};
   SteadyClock::time_point command_time_{};
@@ -320,6 +484,8 @@ private:
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr target_sub_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr button_sub_;
   rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr observation_pub_;
+  rclcpp::Publisher<geometry_msgs::msg::Vector3>::SharedPtr gravity_pub_;
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr mode_pub_;
   rclcpp::TimerBase::SharedPtr timer_;
 };
 
