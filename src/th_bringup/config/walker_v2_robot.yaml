@@ -1,0 +1,112 @@
+# WalkerV2 hardware map: one entry per joint (10 RobStride motors), plus
+# robot-wide settings. Launch with:
+#   ros2 launch th_bringup robot.launch.py \
+#     motors_config:=src/th_bringup/config/walker_v2_robot.yaml \
+#     policy_spec:=policies/walker_v2/policy_spec.json \
+#     model_path:=policies/walker_v2/policy.onnx walk_event:='A pressed'
+#
+# FILL IN before the first run (the launch refuses while any is null):
+#   motor_id  - find_motor_id.sh can_usb
+#   offset    - tools/walker/calibrate_offsets.py (robot hanging in the default pose)
+# VERIFY:
+#   direction - tools/walker/wiggle_test.py; +joint must move the foot as the URDF says
+#               (pitch +: foot moves back; hip roll +: foot moves +y/left).
+#   limits    - URDF limits; hip roll is narrowed on the inside (foot collision at ~17 deg).
+
+# mit: motors run PD with the policy_spec kp/kd (what training assumed).
+# csp: position mode with a 1 rad/s speed limit; bench only, the policy will not walk.
+control_mode: mit
+# Damping (kp = 0) used whenever targets stop: before STAND, after BACK, after a fall.
+damping_kd: 1.0
+# Motor command/feedback exchange rate when no policy target arrives.
+feedback_rate: 100.0
+
+imu:
+  # Rotation taking IMU-frame vectors into base_link (x forward, y left, z up), [w, x, y, z].
+  # The URDF imu_joint is identity; set this from the real mounting, then check with
+  # `ros2 topic echo /policy_bridge/projected_gravity` (upright: 0 0 -1; nose down: +x).
+  rotation: [1.0, 0.0, 0.0, 0.0]
+  # World frame of the IMU's orientation output: enu (z up) or ned (z down, VectorNav default).
+  world_frame: enu
+
+motors:
+  - joint: left_hip_pitch_joint
+    motor_id: null
+    motor_model: RS03
+    can_interface: can_usb
+    direction: 1.0
+    offset: null
+    lower: -0.7854
+    upper: 0.7854
+  - joint: left_hip_roll_joint
+    motor_id: null
+    motor_model: RS03
+    can_interface: can_usb
+    direction: 1.0
+    offset: null
+    lower: -0.35
+    upper: 0.7854
+  - joint: left_hip_yaw_joint
+    motor_id: null
+    motor_model: RS02
+    can_interface: can_usb
+    direction: 1.0
+    offset: null
+    lower: -0.7854
+    upper: 0.7854
+  - joint: left_knee_pitch_joint
+    motor_id: null
+    motor_model: RS03
+    can_interface: can_usb
+    direction: 1.0
+    offset: null
+    lower: 0.0
+    upper: 2.0944
+  - joint: left_ankle_pitch_joint
+    motor_id: null
+    motor_model: RS06
+    can_interface: can_usb
+    direction: 1.0
+    offset: null
+    lower: -1.5708
+    upper: 1.5708
+  - joint: right_hip_pitch_joint
+    motor_id: null
+    motor_model: RS03
+    can_interface: can_usb
+    direction: 1.0
+    offset: null
+    lower: -0.7854
+    upper: 0.7854
+  - joint: right_hip_roll_joint
+    motor_id: null
+    motor_model: RS03
+    can_interface: can_usb
+    direction: 1.0
+    offset: null
+    lower: -0.7854
+    upper: 0.35
+  - joint: right_hip_yaw_joint
+    motor_id: null
+    motor_model: RS02
+    can_interface: can_usb
+    direction: 1.0
+    offset: null
+    lower: -0.7854
+    upper: 0.7854
+  - joint: right_knee_pitch_joint
+    motor_id: null
+    motor_model: RS03
+    can_interface: can_usb
+    direction: 1.0
+    offset: null
+    lower: 0.0
+    upper: 2.0944
+  - joint: right_ankle_pitch_joint
+    motor_id: null
+    motor_model: RS06
+    can_interface: can_usb
+    direction: 1.0
+    offset: null
+    lower: -1.5708
+    upper: 1.5708
