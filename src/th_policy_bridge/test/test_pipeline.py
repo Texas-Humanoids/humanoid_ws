@@ -284,3 +284,83 @@ def test_rejects_motor_for_unknown_joint():
         assert 'wrist_joint is not a policy joint' in h.diagnostics()
     finally:
         h.close()
+
+
+def test_stand_ramps_to_default_then_walk_forwards_policy(harness):
+    h = harness(walk_event='A pressed', stand_ramp_time=0.5)
+    # Joint space: hip 0.3 (default 0.0), knee 0.0 (default 0.4; motor = -0 + 1.0).
+    h.motor_state = {'hip': (0.3, 0.0), 'knee': (1.0, 0.0)}
+
+    def step():
+        h.publish_sensors()
+        h.publish_targets([-0.25, 0.5, -0.3])
+
+    h.arm(step)
+    assert 'STAND' in h.diagnostics()
+    h.spin_for(0.7, step=step)  # ramp finishes
+    assert h.commands['hip'][-1].data == pytest.approx(0.0, abs=1e-6)  # default, not the policy
+    assert h.commands['knee'][-1].data == pytest.approx(0.6, abs=1e-6)  # -0.4 + 1.0
+    obs = h.observations[-1].data
+    assert list(obs[15:18]) == pytest.approx([0.0, 0.0, 0.0])  # no last action while standing
+
+    h.buttons.publish(String(data='A pressed'))
+    h.wait(lambda: h.commands['hip'][-1].data == pytest.approx(-0.25), step=step)
+    assert 'WALK' in h.diagnostics()
+
+
+def test_tilt_disarms(harness):
+    h = harness(max_tilt=0.5)
+
+    def step():
+        h.publish_motors()
+        h.publish_targets([0.1, 0.4, -0.3])
+        h.imu.publish(Imu(orientation=Quaternion(w=1.0)))
+
+    h.arm(step)
+
+    def fallen():
+        h.publish_motors()
+        h.publish_targets([0.1, 0.4, -0.3])
+        # 90 deg about x: lying on its side.
+        h.imu.publish(Imu(orientation=Quaternion(w=0.7071068, x=0.7071068)))
+
+    h.wait(lambda: 'base tilt exceeded max_tilt' in h.diagnostics(), step=fallen)
+
+
+def test_gait_phase_and_scales(harness):
+    h = harness(
+        observation_terms=['base_ang_vel', 'joint_vel', 'gait_phase'],
+        observation_scales=[0.25, 0.05, 1.0], gait_period=0.7)
+    h.motor_state = {'hip': (0.0, 2.0), 'knee': (1.0, 0.0)}
+
+    def step():
+        h.publish_sensors()
+        h.publish_targets([0.0, 0.4, -0.3])
+
+    h.wait(lambda: bool(h.observations), step=step)
+    obs = h.observations[-1].data
+    assert len(obs) == 3 + 3 + 2
+    assert obs[2] == pytest.approx(0.125)  # yaw rate 0.5 * 0.25
+    assert obs[3] == pytest.approx(0.1)  # hip 2.0 rad/s * 0.05
+    assert list(obs[6:8]) == pytest.approx([0.0, 1.0])  # phase 0 until walking
+
+
+def test_short_feedback_gap_while_armed_does_not_disarm(harness):
+    h = harness()
+
+    def step():
+        h.publish_sensors()
+        h.publish_targets([0.1, 0.4, -0.3])
+
+    def imu_and_targets_only():
+        h.publish_imu()
+        h.publish_targets([0.1, 0.4, -0.3])
+
+    h.arm(step)
+    h.spin_for(0.2, step=imu_and_targets_only)  # 0.2 s gap: over 0.1, under 0.3
+    h.spin_for(0.3, step=step)
+    assert 'Disarmed (' not in h.diagnostics()
+    assert 'motor feedback is late' in h.diagnostics()
+
+    h.spin_for(0.5, step=imu_and_targets_only)
+    assert 'Disarmed (motor feedback is stale)' in h.diagnostics()

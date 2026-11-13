@@ -122,3 +122,77 @@ TEST(JointMapping, RejectsInvalidCalibration)
     tb::validate({1.0, std::numeric_limits<double>::infinity(), -1.0, 1.0}, "j"),
     std::invalid_argument);
 }
+
+TEST(Rotation, QuarterTurnAboutZ)
+{
+  const double h = std::sqrt(0.5);
+  const auto v = tb::rotate({h, 0.0, 0.0, h}, {1.0, 0.0, 0.0});
+  EXPECT_NEAR(v[0], 0.0, 1e-12);
+  EXPECT_NEAR(v[1], 1.0, 1e-12);
+  EXPECT_NEAR(v[2], 0.0, 1e-12);
+}
+
+TEST(Gravity, NoseDownPitchGivesPositiveX)
+{
+  // Pitch +0.3 rad about y (nose down in a z-up frame).
+  const double a = 0.15;
+  const auto g = tb::projected_gravity({std::cos(a), 0.0, std::sin(a), 0.0});
+  EXPECT_NEAR(g[0], std::sin(0.3), 1e-12);
+  EXPECT_NEAR(g[2], -std::cos(0.3), 1e-12);
+}
+
+TEST(Gravity, NedWorldMatchesEnuForUprightImu)
+{
+  // Upright in NED means the IMU's own z points down; a 180 deg turn about x maps
+  // that IMU into a z-up base frame.
+  const auto in_imu = tb::projected_gravity({1.0, 0.0, 0.0, 0.0}, true);
+  const auto in_base = tb::rotate({0.0, 1.0, 0.0, 0.0}, in_imu);
+  EXPECT_NEAR(in_base[2], -1.0, 1e-12);
+}
+
+TEST(Layout, WalkerV2LayoutHas41ScaledEntries)
+{
+  const auto layout = tb::parse_layout(
+    {"base_ang_vel", "projected_gravity", "velocity_command", "joint_pos_rel", "joint_vel",
+      "last_action", "gait_phase"},
+    {0.25, 1.0, 1.0, 1.0, 0.05, 1.0, 1.0});
+  const std::vector<double> defaults(10, 0.1);
+  tb::ObservationInputs in;
+  in.command = {0.3, 0.0, 0.1};
+  in.angular_velocity = {4.0, 0.0, 0.0};
+  in.gravity = {0.0, 0.0, -1.0};
+  in.joint_positions.assign(10, 0.3);
+  in.joint_velocities.assign(10, 2.0);
+  in.previous_actions.assign(10, -1.0);
+  in.gait_phase = 0.25;
+  const auto obs = tb::build_observation(in, defaults, layout);
+  ASSERT_EQ(obs.size(), 41u);
+  ASSERT_EQ(layout.size(10), 41u);
+  EXPECT_FLOAT_EQ(obs[0], 1.0f);  // ang vel x 0.25
+  EXPECT_FLOAT_EQ(obs[5], -1.0f);  // gravity z
+  EXPECT_FLOAT_EQ(obs[6], 0.3f);  // command vx
+  EXPECT_FLOAT_EQ(obs[9], 0.2f);  // joint pos rel
+  EXPECT_FLOAT_EQ(obs[19], 0.1f);  // joint vel x 0.05
+  EXPECT_FLOAT_EQ(obs[29], -1.0f);  // last action
+  EXPECT_NEAR(obs[39], 1.0f, 1e-6);  // sin(pi/2)
+  EXPECT_NEAR(obs[40], 0.0f, 1e-6);  // cos(pi/2)
+}
+
+TEST(Layout, EmptyNamesFallBackToBerkeley)
+{
+  EXPECT_EQ(tb::parse_layout({}, {}).size(12), 45u);
+}
+
+TEST(Layout, RejectsUnknownTermAndScaleMismatch)
+{
+  EXPECT_THROW(tb::parse_layout({"height_scan"}, {}), std::invalid_argument);
+  EXPECT_THROW(tb::parse_layout({"joint_vel"}, {1.0, 2.0}), std::invalid_argument);
+}
+
+TEST(Interpolate, ClampsAlpha)
+{
+  const auto mid = tb::interpolate({0.0, 1.0}, {1.0, 3.0}, 0.5);
+  EXPECT_DOUBLE_EQ(mid[0], 0.5);
+  EXPECT_DOUBLE_EQ(mid[1], 2.0);
+  EXPECT_DOUBLE_EQ(tb::interpolate({0.0}, {1.0}, 7.0)[0], 1.0);
+}
