@@ -39,8 +39,12 @@ training gains and kp 30 is settled for v6. Changing it would need
 retraining. The consequence is that the robot **cannot stand on PD alone**.
 At kp 30 the ankles give way (it falls in about 2 s in both simulators;
 standing passively needs about 80). It stays up only while the policy is
-actively balancing. So STAND (the ramp to the default pose) and anything
-after a disarm must happen on the gantry. See the procedure in the
+actively balancing. The deploy side handles this: during STAND (before the
+policy runs) the ankles hold at kp 80 / kd 3 (`stand_kp` in
+`walker_v2_robot.yaml`), and the moment A starts the policy they switch back
+to the trained 30 / 1.5. In MuJoCo through our stack, with the gantry
+released at STAND, kp 30 tips over and kp 80 stands, and v6 then takes over
+cleanly. After a disarm every motor damps, so that still needs the gantry. See the
 [th_bringup README](../../../src/th_bringup/README.md).
 
 ## Results

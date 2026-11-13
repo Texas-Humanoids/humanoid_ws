@@ -13,7 +13,7 @@ import rclpy
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Imu, JointState
-from std_msgs.msg import Float32MultiArray, Float64, String
+from std_msgs.msg import Float32MultiArray, Float64, Float64MultiArray, String
 
 # The ankle has no motor, so it always reads as its default pose.
 JOINTS = ['hip_joint', 'knee_joint', 'ankle_joint']
@@ -389,3 +389,39 @@ def test_stand_ramp_starts_where_a_joint_outside_its_limits_is(harness):
     assert hip[-1] == pytest.approx(0.0, abs=1e-6)
     assert max(hip) <= 0.9 + 1e-6  # never further out than it started
     assert all(b <= a + 1e-6 for a, b in zip(hip, hip[1:]))  # monotonic toward default
+
+
+def test_stand_uses_stand_gains_and_walk_the_trained_ones(harness):
+    h = harness(walk_event='A pressed', stand_ramp_time=0.3,
+                policy_kp=[60.0, 30.0], policy_kd=[3.0, 1.5],
+                stand_kp=[60.0, 80.0], stand_kd=[3.0, 3.0])
+    gains = {motor: [] for motor in MOTORS}
+    for motor in MOTORS:
+        h.node.create_subscription(
+            Float64MultiArray, h.topic(motor + '/motor/gains'),
+            lambda msg, motor=motor: gains[motor].append(list(msg.data)), 10)
+
+    def step():
+        h.publish_sensors()
+        h.publish_targets([0.0, 0.4, -0.3])
+
+    h.arm(step)  # START -> STAND
+    h.wait(lambda: gains['knee'] and gains['knee'][-1] == [80.0, 3.0], step=step)
+    assert gains['hip'][-1] == [60.0, 3.0]  # no stand override for the hip
+
+    h.spin_for(0.5, step=step)
+    h.buttons.publish(String(data='A pressed'))
+    h.wait(lambda: gains['knee'][-1] == [30.0, 1.5], step=step)  # WALK: trained gains
+
+    h.buttons.publish(String(data='BACK pressed'))
+    h.spin_for(0.7, step=step)  # disarmed (and the periodic refresh): still trained gains
+    assert gains['knee'][-1] == [30.0, 1.5]
+
+
+def test_gain_lists_must_match_the_motors():
+    h = Harness(policy_kp=[60.0], policy_kd=[3.0], stand_kp=[60.0], stand_kd=[3.0])
+    try:
+        assert h.process.wait(timeout=10) == 1
+        assert 'one entry per motor' in h.diagnostics()
+    finally:
+        h.close()

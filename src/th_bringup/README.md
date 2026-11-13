@@ -184,7 +184,8 @@ How the pieces behave:
   pure damping (`kp = 0`, `damping_kd`), so the robot sinks rather than holding
   stiff or going fully limp. Ctrl-C stops the motors entirely.
 - **Two-step arming.** START ramps every joint from where it is to the default
-  pose over 2 s and holds it (STAND). A hands control to the policy (WALK).
+  pose over 2 s and holds it (STAND). Per motor, STAND can use stiffer `stand_kp`/`stand_kd`
+  from the robot yaml; the policy's trained gains return at WALK. A hands control to the policy (WALK).
   BACK disarms. `ros2 topic echo --qos-durability transient_local /policy_bridge/mode`
   shows the state.
 - **Fall cutoff.** Tilt above `max_tilt` (1.0 rad) disarms.
@@ -230,17 +231,20 @@ Observation normalization must be baked into the ONNX.
    about (0, 0, -1), tipping the robot nose-down gives +x, and tipping it left
    side down gives +y. If not, fix `imu.rotation` for how the sensor is mounted.
 5. **Stand pose.** With the robot hanging (feet just off the ground), press
-   START. The legs ramp to the default pose and hold it. Then BACK.
-   **STAND does not hold the robot up.** v6 is trained with ankle kp 30, and on
-   PD alone the robot cannot carry its weight (it falls in about 2 s in both
-   simulators; it would need kp ≥ 80). Only the running policy balances it.
-   Never take the gantry's load off in STAND or after a disarm.
-6. **Walk.** Hanging, press START and wait for the ramp. Lower until the feet
-   carry weight but the gantry still holds. Press A with the stick centered:
-   the policy now balances actively (at zero command v6 stands with a 6-8°
-   forward lean and a small in-place rhythm). Slacken the gantry so it only
-   catches, then hold LB and push the left stick forward gently. BACK or a
-   fall disarms, and the robot sinks onto the gantry.
+   START. The legs ramp to the default pose and hold it. Then lower until the
+   feet carry the weight, with the gantry still catching: the robot should
+   stand on its own. Then BACK.
+   STAND uses `stand_kp`/`stand_kd` from the robot yaml. The ankles hold at kp
+   80 because v6's trained ankle kp 30 cannot carry the robot on PD alone (it
+   tips over in about 2 s; MuJoCo with `sim:=true sim_gantry_release:=STAND`
+   shows both cases). When A starts the policy, the ankles switch to the
+   trained 30 (logged as `Gains now kp 30.0` by each ankle motor).
+   After BACK or a fall cutoff every motor damps, so the robot sinks onto the gantry.
+6. **Walk.** START, wait for the ramp, lower until the feet carry weight, then
+   press A with the stick centered. The policy now balances actively (at zero
+   command v6 stands with a 6-8° forward lean and a small in-place rhythm).
+   Slacken the gantry so it only catches, then hold LB and push the left stick
+   forward gently.
 
 ### Simulated robot (`sim:=true`)
 
