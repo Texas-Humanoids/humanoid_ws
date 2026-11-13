@@ -187,9 +187,7 @@ def launch_pipeline(context):
             'can_interface': motor['can_interface'],
             'control_mode': control_mode,
         }
-        if control_mode == 'mit':
-            if motor['joint'] not in gains:
-                raise RuntimeError(f'{motor["joint"]} is not in the policy spec joint_order')
+        if control_mode == 'mit':  # every motor joint was checked against gains above
             # Training gains are joint-space; |direction| = 1 so they carry over unchanged.
             params['kp'], params['kd'] = gains[motor['joint']]
             params['damping_kd'] = float(motor.get('damping_kd', robot.get('damping_kd', 1.0)))
