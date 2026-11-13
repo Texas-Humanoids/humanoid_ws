@@ -2,8 +2,8 @@
 # robot-wide settings. Launch with:
 #   ros2 launch th_bringup robot.launch.py \
 #     motors_config:=src/th_bringup/config/walker_v2_robot.yaml \
-#     policy_spec:=policies/walker_v2/policy_spec.json \
-#     model_path:=policies/walker_v2/policy.onnx walk_event:='A pressed'
+#     policy_spec:=policies/walker_v2/v6/policy_spec.json \
+#     model_path:=policies/walker_v2/v6/policy.onnx walk_event:='A pressed'
 #
 # FILL IN before the first run (the launch refuses while any is null):
 #   motor_id  - find_motor_id.sh can_usb
