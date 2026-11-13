@@ -165,9 +165,8 @@ example after the container is killed), it stops and ignores targets until
 
 Files: [config/walker_v2_robot.yaml](config/walker_v2_robot.yaml) (motor IDs,
 calibration, IMU mounting, control mode) and the training export
-`policy_spec.json` (see [the example](config/walker_v2_policy_spec.example.json)).
-Each deployed policy lives in its own folder under `policies/walker_v2/`; the current
-one is [v6](../../policies/walker_v2/v6/README.md).
+`policy_spec.json`. Each deployed policy lives in its own folder under
+`policies/walker_v2/`; the current one is [v6](../../policies/walker_v2/v6/README.md).
 
 ```bash
 ros2 launch th_bringup robot.launch.py \
