@@ -77,7 +77,9 @@ motors to the left leg's hip, knee and ankle pitch joints.
 3. **Container.** From the repo root on the Jetson:
    `docker compose --profile robot up -d --build`, then
    `docker compose exec robot bash`. This profile shares the host network
-   (for CAN), `/dev` and udev (for the controller).
+   (for CAN), `/dev` and udev (for the controller). If `docker compose` is
+   missing (Ubuntu's `docker.io` doesn't include it), run
+   `sudo apt install docker-compose-v2`.
 4. **Motor IDs and offsets.** Run `src/robstride_motor/scripts/find_motor_id.sh can_usb`
    and put the real IDs and models (RS03/RS06) in `bench_motors.yaml`. Then
    measure each `offset` as described under
