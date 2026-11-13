@@ -246,9 +246,11 @@ timing) before the hardware does. The sim:
   `motor_id` is ignored), and reports the IMU in the frame that `imu.rotation`
   and `imu.world_frame` describe, so the bridge must undo both correctly;
 - emulates MIT mode as `robstride_motor_node` does: PD with the spec `kp`/`kd`
-  while targets are under 0.1 s old, otherwise `kp = 0`, `kd = damping_kd`;
+  while targets are under 0.2 s old, otherwise `kp = 0`, `kd = damping_kd`;
   torque saturates at the model peak (RS02 17, RS03 60, RS06 36 Nm) or
   `torque_limit`; the PD runs every 1 ms physics step;
+- holds each target back `sim_command_delay` (0.01 s) before the motor uses it,
+  standing in for the CAN and ROS hops (training randomizes 0-0.02 s);
 - runs in real time at 1 kHz, with feedback at `feedback_rate` (100 Hz), the
   IMU at 200 Hz, and the ground-truth base pose on `/mujoco_sim/base_pose`;
 - holds the base on a **gantry** (feet 1 cm above the floor) until the bridge

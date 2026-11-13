@@ -16,10 +16,13 @@ class MitMotors:
     is fresh (younger than target_timeout) each motor runs PD toward it with
     kp/kd; otherwise kp = 0 and kd = damping_kd. Torque saturates at
     torque_limit. The motor holds its last target between messages.
+
+    command_delay holds each target back before the motor uses it, standing in
+    for the bus and ROS transport (training's DelayedDCMotor delays 0-20 ms).
     """
 
     def __init__(self, directions, offsets, kp, kd, damping_kd, torque_limit,
-                 target_timeout=0.1):
+                 target_timeout=0.1, command_delay=0.0):
         self.direction = np.asarray(directions, float)
         self.offset = np.asarray(offsets, float)
         self.kp = np.asarray(kp, float)
@@ -27,6 +30,9 @@ class MitMotors:
         self.damping_kd = np.asarray(damping_kd, float) * np.ones_like(self.kp)
         self.torque_limit = np.asarray(torque_limit, float)
         self.target_timeout = float(target_timeout)
+        self.command_delay = float(command_delay)
+        if not self.command_delay >= 0.0:
+            raise ValueError('command_delay must be >= 0')
         n = len(self.direction)
         for name in ('offset', 'kp', 'kd', 'damping_kd', 'torque_limit'):
             if getattr(self, name).shape != (n,):
@@ -34,7 +40,8 @@ class MitMotors:
         if np.any(np.abs(self.direction) != 1.0):
             raise ValueError('direction must be +1 or -1')
         self.target = np.full(n, np.nan)  # motor space; NaN until the first command
-        self.target_time = np.full(n, -np.inf)
+        self.target_time = np.full(n, -np.inf)  # when the motor started using the target
+        self.pending = []  # (time due, index, motor target), oldest first
 
     def joint_to_motor(self, q):
         return self.direction * q + self.offset
@@ -47,14 +54,22 @@ class MitMotors:
         """A motor/target_position message (motor space) arrived at time `now`."""
         if not np.isfinite(motor_target):
             return
-        self.target[index] = np.clip(motor_target, -POSITION_MAX, POSITION_MAX)
-        self.target_time[index] = now
+        self.pending.append(
+            (now + self.command_delay, index, np.clip(motor_target, -POSITION_MAX, POSITION_MAX)))
+
+    def apply_due(self, now):
+        """Hands the motors every target whose delay has passed by `now`."""
+        while self.pending and self.pending[0][0] <= now:
+            due, index, target = self.pending.pop(0)
+            self.target[index] = target
+            self.target_time[index] = due
 
     def active(self, now):
         return (now - self.target_time) <= self.target_timeout
 
     def joint_torque(self, q, qd, now):
         """Joint-space torque the motors apply for joint state (q, qd)."""
+        self.apply_due(now)
         position, velocity = self.motor_feedback(q, qd)
         active = self.active(now)
         kp = np.where(active, self.kp, 0.0)
