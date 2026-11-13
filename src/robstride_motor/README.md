@@ -196,3 +196,16 @@ Unit tests cover CAN ID packing and parameter encode/decode against real capture
 - Single motor per node; no coordinated multi-joint motion yet.
 - Only RS06 and RS03 are in the `motor_model` table (`kMotorLimitsByModel`); RS03 has not been run on hardware yet.
 - Status decoding, fault reports, the CAN timeout and active reporting are untested on hardware. Check `motor/status` and `candump can0` on first bring-up; if no status frames arrive, the node warns and keeps running on position/velocity alone.
+
+## MIT mode (`control_mode: mit`)
+
+The motor runs PD in its own loop: `torque = kp (target - q) + kd (0 - dq)`,
+limited to `torque_limit` (0 = model maximum). Each target is sent as a type 1
+frame as soon as it arrives, and the type 2 reply provides position, velocity,
+torque and temperature. If no target arrives within `target_timeout` (0.1 s),
+the timer sends `kp = 0, kd = damping_kd` frames instead. The node starts in
+damping. Parameters: `kp`, `kd`, `damping_kd`, `torque_limit`,
+`target_timeout`, `feedback_rate` (the keep-alive rate). Models: RS02 (kp ≤
+500, kd ≤ 5), RS03 and RS06 (kp ≤ 5000, kd ≤ 100). These gain ranges set the
+wire scaling, so check them on the first step-response test: a 10× scaling
+error looks like a very soft or very stiff joint.
