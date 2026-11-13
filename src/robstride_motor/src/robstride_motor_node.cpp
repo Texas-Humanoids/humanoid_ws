@@ -20,6 +20,7 @@
 #include "diagnostic_msgs/msg/key_value.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/float64.hpp"
+#include "std_msgs/msg/float64_multi_array.hpp"
 #include "std_srvs/srv/trigger.hpp"
 #include "robstride_motor/can_protocol.hpp"
 
@@ -141,6 +142,14 @@ public:
       {
         this->on_position_command(message);
         });
+
+    // [kp, kd] for MIT mode, e.g. stiffer gains while standing before the policy runs.
+    gains_subscription_ = this->create_subscription<std_msgs::msg::Float64MultiArray>(
+      "motor/gains", 10,
+      [this](std_msgs::msg::Float64MultiArray::ConstSharedPtr message)
+      {
+        this->on_gains(*message);
+      });
 
     feedback_timer_ = this->create_wall_timer(
       std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -396,6 +405,31 @@ private:
 
   rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr
     position_subscription_;
+  rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr gains_subscription_;
+
+  void on_gains(const std_msgs::msg::Float64MultiArray & message)
+  {
+    if (!mit()) {
+      RCLCPP_WARN_THROTTLE(
+        this->get_logger(), *this->get_clock(), 5000, "Ignoring motor/gains outside MIT mode");
+      return;
+    }
+    if (message.data.size() != 2 || !(message.data[0] >= 0.0) ||
+      !(message.data[0] <= motor_limits_.kp_max) || !(message.data[1] >= 0.0) ||
+      !(message.data[1] <= motor_limits_.kd_max))
+    {
+      RCLCPP_WARN_THROTTLE(
+        this->get_logger(), *this->get_clock(), 1000,
+        "Ignoring motor/gains: need [kp, kd] with 0 <= kp <= %.0f and 0 <= kd <= %.0f",
+        motor_limits_.kp_max, motor_limits_.kd_max);
+      return;
+    }
+    if (message.data[0] != kp_ || message.data[1] != kd_) {
+      kp_ = message.data[0];
+      kd_ = message.data[1];
+      RCLCPP_INFO(this->get_logger(), "Gains now kp %.1f, kd %.2f", kp_, kd_);
+    }
+  }
 
   rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr
     actual_position_publisher_;

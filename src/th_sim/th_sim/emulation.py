@@ -43,6 +43,14 @@ class MitMotors:
         self.target_time = np.full(n, -np.inf)  # when the motor started using the target
         self.pending = []  # (time due, index, motor target), oldest first
 
+    def set_gains(self, index, kp, kd):
+        """A motor/gains message ([kp, kd]) arrived; the next PD step uses it."""
+        if not (np.isfinite(kp) and np.isfinite(kd) and kp >= 0 and kd >= 0):
+            return False
+        self.kp[index] = kp
+        self.kd[index] = kd
+        return True
+
     def joint_to_motor(self, q):
         return self.direction * q + self.offset
 

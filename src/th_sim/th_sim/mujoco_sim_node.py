@@ -28,7 +28,7 @@ from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
 from geometry_msgs.msg import PoseStamped
 from sensor_msgs.msg import Imu
-from std_msgs.msg import Float64, String
+from std_msgs.msg import Float64, Float64MultiArray, String
 from std_srvs.srv import Trigger
 
 from th_sim.emulation import ImuMount, MitMotors, TORQUE_MAX, KD_MAX, KP_MAX
@@ -43,6 +43,7 @@ class MujocoSim(Node):
         self.joints = list(p('joints', ['']).value)
         namespaces = list(p('motor_namespaces', ['']).value)
         models = list(p('motor_models', ['']).value)
+        self.models = models
         directions = list(p('directions', [0.0]).value)
         offsets = list(p('offsets', [0.0]).value)
         kp = list(p('kp', [0.0]).value)
@@ -115,6 +116,9 @@ class MujocoSim(Node):
             self.create_subscription(
                 Float64, ns + '/motor/target_position',
                 lambda msg, i=i: self.on_target(i, msg), 10)
+            self.create_subscription(
+                Float64MultiArray, ns + '/motor/gains',
+                lambda msg, i=i: self.on_gains(i, msg), 10)
         self.imu_pub = self.create_publisher(
             Imu, p('imu_topic', '/imu/data').value, qos_profile_sensor_data)
         self.pose_pub = self.create_publisher(PoseStamped, '~/base_pose', 10)
@@ -145,6 +149,20 @@ class MujocoSim(Node):
     def on_target(self, index, msg):
         with self.lock:
             self.motors.command(index, msg.data, time.monotonic())
+
+    def on_gains(self, index, msg):
+        if len(msg.data) != 2:
+            return
+        kp, kd = float(msg.data[0]), float(msg.data[1])
+        model = self.models[index]
+        if not (0 <= kp <= KP_MAX[model] and 0 <= kd <= KD_MAX[model]):
+            return
+        with self.lock:
+            old = (self.motors.kp[index], self.motors.kd[index])
+            self.motors.set_gains(index, kp, kd)
+        if old != (kp, kd):
+            self.get_logger().info(
+                f'{self.joints[index]}: gains now kp {kp:.1f}, kd {kd:.2f}')
 
     def reset(self):
         with self.lock:
