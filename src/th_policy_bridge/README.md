@@ -46,6 +46,17 @@ training export when given `policy_spec:=` (see
 - Previous actions, recovered from `/policy/joint_targets` as
   `(target - default) / action_scale`.
 
+**Heading hold.** The policy only sees its yaw rate, never its heading, so it
+slowly curves. With `heading_hold_gain` > 0 (0 = off, the default), while in
+WALK with linear motion commanded and no turn (|wz| ≤ 0.05), the bridge
+replaces the yaw command with `clamp(gain · (reference − heading),
+±heading_hold_max_rate)`. The heading is integrated from the gyro about world
+vertical (not the IMU's magnetometer yaw, which motors disturb); standing or
+turning moves the reference along, so the robot never turns on its own while
+standing. WalkerV2 uses gain 1.5, max rate 0.3 rad/s (`heading_hold` in
+`walker_v2_robot.yaml`); in the MuJoCo stand-in with v6 it keeps the heading
+within ~2° over 15 s, against 5-20° without it.
+
 **IMU frame.** `imu_rotation` ([w, x, y, z], identity by default) rotates
 IMU-frame vectors into the base frame (x forward, y left, z up).
 `imu_world_frame: ned` handles IMUs whose orientation is relative to a z-down

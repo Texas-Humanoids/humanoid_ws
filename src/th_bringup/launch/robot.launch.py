@@ -130,6 +130,11 @@ def launch_pipeline(context):
         bridge_extra['imu_rotation'] = [float(v) for v in imu['rotation']]
     if 'world_frame' in imu:
         bridge_extra['imu_world_frame'] = imu['world_frame']
+    heading_hold = robot.get('heading_hold') or {}
+    if 'gain' in heading_hold:
+        bridge_extra['heading_hold_gain'] = float(heading_hold['gain'])
+    if 'max_rate' in heading_hold:
+        bridge_extra['heading_hold_max_rate'] = float(heading_hold['max_rate'])
     if arg('walk_event'):
         bridge_extra['walk_event'] = arg('walk_event')
     # ROS cannot infer a type for empty lists, so leave the bridge on its defaults without motors.
