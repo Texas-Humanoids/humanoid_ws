@@ -49,6 +49,8 @@ class MujocoSim(Node):
         kd = list(p('kd', [0.0]).value)
         torque_limits = list(p('torque_limits', [0.0]).value)  # 0 = model peak
         damping_kd = p('damping_kd', 1.0).value
+        target_timeout = p('target_timeout', 0.1).value  # as robstride_motor_node
+        command_delay = p('command_delay', 0.0).value  # s, before a target reaches the motor
         initial = list(p('initial_joint_positions', [0.0]).value)
         self.feedback_period = 1.0 / p('feedback_rate', 100.0).value
         self.imu_period = 1.0 / p('imu_rate', 200.0).value
@@ -78,7 +80,8 @@ class MujocoSim(Node):
         for joint, limit, model in zip(self.joints, limits, models):
             if limit > TORQUE_MAX[model]:
                 raise ValueError(f'{joint}: torque_limit above the {model} peak')
-        self.motors = MitMotors(directions, offsets, kp, kd, damping_kd, limits)
+        self.motors = MitMotors(
+            directions, offsets, kp, kd, damping_kd, limits, target_timeout, command_delay)
 
         self.model = mujoco.MjModel.from_xml_path(model_path)
         self.data = mujoco.MjData(self.model)
@@ -111,7 +114,7 @@ class MujocoSim(Node):
                 self.create_publisher(Float64, ns + '/motor/actual_velocity', 10))
             self.create_subscription(
                 Float64, ns + '/motor/target_position',
-                lambda msg, i=i: self.motors.command(i, msg.data, time.monotonic()), 10)
+                lambda msg, i=i: self.on_target(i, msg), 10)
         self.imu_pub = self.create_publisher(
             Imu, p('imu_topic', '/imu/data').value, qos_profile_sensor_data)
         self.pose_pub = self.create_publisher(PoseStamped, '~/base_pose', 10)
@@ -138,6 +141,10 @@ class MujocoSim(Node):
             f'Simulating {n} MIT motors and the IMU at {1 / self.model.opt.timestep:.0f} Hz '
             f'({model_path}); gantry release: {self.gantry_release}. '
             'Motors damp until targets arrive.')
+
+    def on_target(self, index, msg):
+        with self.lock:
+            self.motors.command(index, msg.data, time.monotonic())
 
     def reset(self):
         with self.lock:

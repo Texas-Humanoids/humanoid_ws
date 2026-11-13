@@ -26,6 +26,17 @@ def test_pd_while_fresh_then_damping_after_timeout():
     assert tau == pytest.approx([-1.0 * 0.5])
 
 
+def test_command_delay_holds_the_target_back():
+    m = MitMotors([1.0], [0.0], kp=[60.0], kd=[3.0], damping_kd=1.0, torque_limit=[60.0],
+                  command_delay=0.01)
+    m.command(0, 0.3, now=10.0)
+    still = np.array([0.0])
+    assert m.joint_torque(still, still, now=10.005) == pytest.approx([0.0])  # still damping
+    assert m.joint_torque(still, still, now=10.01) == pytest.approx([60.0 * 0.3])
+    # Freshness counts from when the motor got the target, not when it was sent.
+    assert m.joint_torque(still, still, now=10.105) == pytest.approx([60.0 * 0.3])
+
+
 def test_torque_saturates():
     m = motors()
     m.command(0, 3.0, now=0.0)

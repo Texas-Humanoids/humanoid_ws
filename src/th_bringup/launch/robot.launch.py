@@ -216,6 +216,8 @@ def sim_node(arg, robot, motors, control_mode, gains, profile):
             'kd': [gains[m['joint']][1] for m in motors],
             'torque_limits': [float(m.get('torque_limit', 0.0)) for m in motors],
             'damping_kd': float(robot.get('damping_kd', 1.0)),
+            'target_timeout': TARGET_TIMEOUT,
+            'command_delay': float(arg('sim_command_delay')),
             'feedback_rate': float(robot.get('feedback_rate', 100.0)),
             'initial_joint_positions': [float(defaults[m['joint']]) for m in motors],
             'imu_topic': arg('imu_topic'),
@@ -268,6 +270,9 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'sim_gantry_release', default_value='WALK',
             description='Bridge mode that drops the sim gantry: STAND, WALK, never, or off (no gantry)'),
+        DeclareLaunchArgument(
+            'sim_command_delay', default_value='0.01',
+            description='Seconds before a sim motor uses a target (training delays 0-0.02 s)'),
         DeclareLaunchArgument(
             'sim_viewer', default_value='false', choices=['true', 'false'],
             description='Open the MuJoCo viewer (needs a display)'),
