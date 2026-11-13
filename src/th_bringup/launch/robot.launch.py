@@ -132,6 +132,18 @@ def launch_pipeline(context):
         bridge_extra['imu_world_frame'] = imu['world_frame']
     if arg('walk_event'):
         bridge_extra['walk_event'] = arg('walk_event')
+    if control_mode == 'mit' and motors:
+        # The bridge switches each motor between its trained gains (WALK) and optional
+        # stiffer stand_kp/stand_kd from the robot yaml (STAND).
+        for m in motors:
+            if m['joint'] not in gains:
+                raise RuntimeError(f'{m["joint"]} is not in the policy spec joint_order')
+        bridge_extra['policy_kp'] = [gains[m['joint']][0] for m in motors]
+        bridge_extra['policy_kd'] = [gains[m['joint']][1] for m in motors]
+        bridge_extra['stand_kp'] = [
+            float(m.get('stand_kp', gains[m['joint']][0])) for m in motors]
+        bridge_extra['stand_kd'] = [
+            float(m.get('stand_kd', gains[m['joint']][1])) for m in motors]
     # ROS cannot infer a type for empty lists, so leave the bridge on its defaults without motors.
     mapping = {
         'motor_joints': [m['joint'] for m in motors],
