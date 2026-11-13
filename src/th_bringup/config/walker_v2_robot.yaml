@@ -36,6 +36,14 @@ imu:
   rotation: [1.0, 0.0, 0.0, 0.0]
   world_frame: enu
 
+# Heading hold while walking without turning: the policy only sees its yaw rate, so it slowly
+# curves; the bridge adds wz = clamp(gain * heading error, +/-max_rate) from the gyro.
+# Tested in MuJoCo with v6 (training/walker_isaaclab/sim2sim/heading_hold_test.py): heading
+# stays within ~1.5 deg over 20 s, forward and backward, with pushes. gain 0 turns it off.
+heading_hold:
+  gain: 1.5
+  max_rate: 0.3
+
 motors:
   - joint: left_hip_pitch_joint
     motor_id: null
