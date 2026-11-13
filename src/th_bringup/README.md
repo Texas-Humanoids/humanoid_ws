@@ -69,8 +69,12 @@ motors to the left leg's hip, knee and ankle pitch joints.
    `docker compose --profile robot up -d --build`, then
    `docker compose exec robot bash`. This profile shares the host network
    (for `can0`), `/dev` and udev (for the controller).
-4. **Motor IDs.** Run `src/robstride_motor/scripts/find_motor_id.sh can0` and
-   put the real IDs and models (RS03/RS06) in `bench_motors.yaml`.
+4. **Motor IDs and offsets.** Run `src/robstride_motor/scripts/find_motor_id.sh can0`
+   and put the real IDs and models (RS03/RS06) in `bench_motors.yaml`. Then
+   measure each `offset` as described under
+   [One-motor bench](#one-motor-bench-tested-on-the-jetson). With
+   `offset: 0.0`, START sends each motor to the policy pose measured from the
+   motor's zero, which can be several radians from where it sits.
 5. **Check the controller.** `ros2 run joy game_controller_node` and
    `ros2 topic echo /joy` in a second shell. LB should be `buttons[9]` and
    the left stick `axes[0]`/`axes[1]`. Stop it before launching.
@@ -104,6 +108,41 @@ targets were:
 Keep the 1 rad/s speed limit for this test. With faster motors the policy,
 which only sees three real joints and no IMU, chases its own motion and
 swings over the full joint range regardless of the stick.
+
+## One-motor bench (tested on the Jetson)
+
+[config/bench_one_motor.yaml](config/bench_one_motor.yaml) is the config the
+pipeline ran with on the Jetson on 2026-11-08: one RS06 (ID 1) on the USB CAN
+adapter (`can1`) standing in for the left hip pitch joint, with an Xbox
+Wireless controller over Bluetooth. Follow steps 1-6 above with `can1` in
+place of `can0`, then launch with:
+
+```bash
+ros2 launch th_bringup robot.launch.py require_imu:=false \
+  motors_config:=src/th_bringup/config/bench_one_motor.yaml
+```
+
+After START the motor moved about 0.29 rad (17°) at 1 rad/s to the policy's
+standing hip pose (joint angle about -0.49 rad, close to the -0.47 in the
+table above) and held it, and it responded to the stick. When the motor was
+unplugged it disabled itself and the node logged a possible CAN timeout.
+
+**Measuring the offset.** The offset maps the policy's default joint angle to
+the motor's current position, so it changes whenever the motor is remounted.
+Launch with the config and leave the bridge disarmed (motors hold where they
+are until START), then read the motor position:
+
+```bash
+ros2 topic echo --once /leg_left_hip_pitch/motor/actual_position
+```
+
+`offset = actual_position - direction * default_angle`, where `default_angle`
+is the joint's entry in `default_joint_positions` in
+`th_policy_node/config/policy_humanoid.yaml` (-0.2 for the hip pitch, 0.4 for
+the knee, -0.3 for the ankle). Ctrl-C, put the offset in the config, and
+relaunch.
+
+## Live topics
 
 `ros2 topic echo /leg_left_knee_pitch/motor/actual_velocity` and
 `/policy/joint_targets` show the same numbers live.

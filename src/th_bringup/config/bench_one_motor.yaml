@@ -1,0 +1,16 @@
+# One motor on a test bench, standing in for the left hip pitch joint.
+# Run on the Jetson on 2026-11-08 with motor 1 on the USB CAN adapter (can1).
+#
+# offset maps the policy's default hip pitch (-0.2 rad) to where the motor sat
+# when measured (4.7615 rad): 4.7615 - (-0.2) = 4.9615. It depends on how the
+# motor is mounted, so re-measure it before each new setup (see the README).
+# The limits are +/-0.5 rad around the default pose, narrower than the URDF.
+motors:
+  - joint: leg_left_hip_pitch_joint
+    motor_id: 1
+    motor_model: RS06
+    can_interface: can1
+    direction: 1.0
+    offset: 4.9615
+    lower: -0.7
+    upper: 0.3
