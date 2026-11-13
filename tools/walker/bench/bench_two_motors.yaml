@@ -1,0 +1,33 @@
+# Tabletop bench: two RS06 motors standing in for WalkerV2's left hip pitch (ID 1)
+# and left ankle pitch (ID 2), with the VN-100. Not the robot config. Torque is
+# capped at 5 Nm for safety; the ankle shows the STAND gain switch (80 -> 30).
+# Offsets depend on how the motors sit: run calibrate_offsets.py before use.
+control_mode: mit
+damping_kd: 0.3
+feedback_rate: 100.0
+imu:
+  driver: vectornav
+  port: /dev/serial/by-id/usb-FTDI_USB-RS232-WE_AV0LSON8-if00-port0
+  rotation: [1.0, 0.0, 0.0, 0.0]
+  world_frame: enu
+motors:
+  - joint: left_hip_pitch_joint
+    motor_id: 1
+    motor_model: RS06
+    can_interface: can_usb
+    direction: 1.0
+    offset: 0.0  # measure with calibrate_offsets.py
+    lower: -0.7854
+    upper: 0.7854
+    torque_limit: 5.0
+  - joint: left_ankle_pitch_joint
+    motor_id: 2
+    motor_model: RS06
+    can_interface: can_usb
+    direction: 1.0
+    offset: 0.0  # measure with calibrate_offsets.py
+    lower: -1.5708
+    upper: 1.5708
+    torque_limit: 5.0
+    stand_kp: 80.0
+    stand_kd: 3.0

@@ -13,3 +13,5 @@ offsets, bringing up CAN interfaces.
   `sim_check.py` drives the MuJoCo sim (`sim:=true`) through STAND and WALK
   and checks rates and that the robot stays up; `sim_viewer.py` shows a sim
   streamed out of Docker on the Mac.
+- `walker/bench/`: scripts and config from the Jetson two-motor bench (MIT checks, hold
+  test, pipeline and policy monitors). See its README.
