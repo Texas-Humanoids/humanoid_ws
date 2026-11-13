@@ -1,0 +1,2 @@
+# MuJoCo for the simulated robot (th_sim). Not needed on the robot itself.
+mujoco==3.3.7

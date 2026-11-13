@@ -10,3 +10,6 @@ offsets, bringing up CAN interfaces.
 - `walker/` — WalkerV2 bring-up: `calibrate_offsets.py` measures every motor offset
   in the default pose, and `wiggle_test.py` steps each joint to check directions
   and log step responses. See [th_bringup](../src/th_bringup/README.md).
+  `sim_check.py` drives the MuJoCo sim (`sim:=true`) through STAND and WALK
+  and checks rates and that the robot stays up; `sim_viewer.py` shows a sim
+  streamed out of Docker on the Mac.
