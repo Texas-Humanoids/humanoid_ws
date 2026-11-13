@@ -160,3 +160,74 @@ relaunch.
 temperature and torque. If a motor faults or its CAN timeout trips (for
 example after the container is killed), it stops and ignores targets until
 `ros2 service call /leg_left_knee_pitch/motor/clear_faults std_srvs/srv/Trigger`.
+
+## WalkerV2 (10 motors, trained policy)
+
+Files: [config/walker_v2_robot.yaml](config/walker_v2_robot.yaml) (motor IDs,
+calibration, IMU mounting, control mode) and the training export
+`policy_spec.json` (see [the example](config/walker_v2_policy_spec.example.json)).
+Put the exported `policy.onnx` and `policy_spec.json` in `policies/walker_v2/`.
+
+```bash
+ros2 launch th_bringup robot.launch.py \
+  motors_config:=src/th_bringup/config/walker_v2_robot.yaml \
+  policy_spec:=policies/walker_v2/policy_spec.json \
+  model_path:=policies/walker_v2/policy.onnx \
+  walk_event:='A pressed' record:=true
+```
+
+How the pieces behave:
+
+- **MIT mode.** With `control_mode: mit` each motor runs PD at its own loop
+  rate using the spec's `kp`/`kd` (the same actuator model as training). When
+  targets stop for 0.1 s (disarmed, BACK, a fall, or a crash) it switches to
+  pure damping (`kp = 0`, `damping_kd`), so the robot sinks rather than holding
+  stiff or going fully limp. Ctrl-C stops the motors entirely.
+- **Two-step arming.** START ramps every joint from where it is to the default
+  pose over 2 s and holds it (STAND). A hands control to the policy (WALK).
+  BACK disarms. `ros2 topic echo --qos-durability transient_local /policy_bridge/mode`
+  shows the state.
+- **Fall cutoff.** Tilt above `max_tilt` (1.0 rad) disarms.
+- **Sensor gaps.** Arming needs every motor and the IMU fresh within 0.1 s.
+  Once armed, a gap of up to `armed_dropout_timeout` (0.3 s) only logs
+  "feedback is late" and the policy runs on the last readings; a longer
+  outage disarms.
+- **Observation.** Built from the spec's `observations` list in order, each
+  term multiplied by its `scale`. The gait phase clock starts at WALK and is 0
+  before that.
+- `record:=true` records policy, IMU, motor and gamepad topics with `ros2 bag`.
+
+### policy_spec.json (written by training, read at launch)
+
+| key | meaning |
+|---|---|
+| `joint_order` | policy joint names, in action/observation order |
+| `default_joint_pos` | default pose, same order (rad) |
+| `kp`, `kd` | sim actuator PD gains, same order; sent to the motors |
+| `action_scale`, `action_clip` | `target = default + action_scale * clip(action)`; `null` = no clip |
+| `policy_dt` | policy period (0.02 = 50 Hz) |
+| `gait_period` | seconds per gait cycle, needed for `gait_phase` |
+| `observations` | list of `{name, scale}`; names: `base_ang_vel`, `projected_gravity`, `velocity_command` (vx, vy, wz), `joint_pos_rel`, `joint_vel`, `last_action`, `gait_phase` (sin 2πφ, cos 2πφ) |
+| `observation_size` | optional check against the sum of the terms |
+
+Observation normalization must be baked into the ONNX.
+
+### First power-on checklist (robot hanging on the gantry)
+
+1. **IDs.** `src/robstride_motor/scripts/find_motor_id.sh can_usb` and fill
+   `motor_id` per joint. RS02 = hip yaw, RS06 = ankle, RS03 = everything else.
+2. **Offsets.** For the first launch, copy the yaml and set every `offset` to
+   0.0. Launch it (motors damp; nothing moves), hold the legs in the default
+   pose, then run
+   `python3 tools/walker/calibrate_offsets.py <robot.yaml> <policy_spec.json> --write`.
+3. **Directions.** Relaunch and run `python3 tools/walker/wiggle_test.py <robot.yaml> --csv steps.csv`.
+   It steps one joint at a time by +0.1 rad and says how the foot should move.
+   Flip `direction` for any joint that moves the wrong way, then repeat step 2.
+   The CSV is the step response to compare against sim (armature, gains).
+4. **IMU.** `ros2 topic echo /policy_bridge/projected_gravity`: upright reads
+   about (0, 0, -1), tipping the robot nose-down gives +x, and tipping it left
+   side down gives +y. If not, fix `imu.rotation` / `imu.world_frame`.
+5. **Stand.** Lower the robot until its feet touch, press START, check that it
+   holds the pose, then BACK.
+6. **Walk.** With the gantry slack but catching, press START, wait for the
+   ramp, press A with the stick centered, then hold LB and push forward gently.
