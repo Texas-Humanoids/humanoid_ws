@@ -12,6 +12,7 @@ namespace robstride_motor
 {
 
 constexpr uint8_t kHostCanId = 0xFF;
+constexpr uint8_t kCommTypeMotionControl = 1;
 constexpr uint8_t kCommTypeStatus = 2;
 constexpr uint8_t kCommTypeEnable = 3;
 constexpr uint8_t kCommTypeStop = 4;
@@ -21,6 +22,7 @@ constexpr uint8_t kCommTypeFaultReport = 0x15;
 constexpr uint8_t kCommTypeActiveReport = 0x18;
 
 constexpr uint16_t kParamRunMode = 0x7005;
+constexpr uint16_t kParamTorqueLimit = 0x700B;
 constexpr uint16_t kParamLocRef = 0x7016;
 constexpr uint16_t kParamSpeedLimit = 0x7017;
 constexpr uint16_t kParamCurrentLimit = 0x7018;
@@ -33,6 +35,7 @@ constexpr uint8_t kModeReset = 0;
 constexpr uint8_t kModeCalibration = 1;
 constexpr uint8_t kModeRunning = 2;
 
+constexpr uint8_t kMitRunMode = 0;
 constexpr uint8_t kCspRunMode = 5;
 
 inline uint32_t make_can_id(uint8_t comm_type, uint16_t middle_field, uint8_t motor_id)
@@ -207,6 +210,57 @@ inline double clamp_position(double target, double position_min, double position
   if (target < position_min) {return position_min;}
   if (target > position_max) {return position_max;}
   return target;
+}
+
+// Maps value in [min, max] to 0..65535, saturating outside the range.
+inline uint16_t encode_u16_range(double value, double min, double max)
+{
+  if (!std::isfinite(value)) {
+    value = 0.5 * (min + max);
+  }
+  const double clamped = clamp_position(value, min, max);
+  return static_cast<uint16_t>(std::lround((clamped - min) * 65535.0 / (max - min)));
+}
+
+// Operation control (MIT mode, run mode 0) command. The motor applies
+//   torque = kp * (position - q) + kd * (velocity - dq) + torque_ff
+// and answers with a type 2 status frame.
+struct MotionCommand
+{
+  double position;  // rad
+  double velocity;  // rad/s
+  double kp;  // Nm/rad
+  double kd;  // Nm*s/rad
+  double torque_ff;  // Nm
+};
+
+// Model-specific MIT ranges (RobStride manuals; RS02 kp 0..500, kd 0..5).
+struct MotionRanges
+{
+  double position_max;
+  double velocity_max;
+  double torque_max;
+  double kp_max;
+  double kd_max;
+};
+
+// Type 1 frame: torque feedforward in ID bits 8..23; position, velocity, kp and kd
+// as big-endian uint16 in the payload.
+inline std::pair<uint32_t, std::array<uint8_t, 8>> encode_motion_command(
+  uint8_t motor_id, const MotionCommand & cmd, const MotionRanges & r)
+{
+  const uint16_t torque = encode_u16_range(cmd.torque_ff, -r.torque_max, r.torque_max);
+  const uint16_t fields[4] = {
+    encode_u16_range(cmd.position, -r.position_max, r.position_max),
+    encode_u16_range(cmd.velocity, -r.velocity_max, r.velocity_max),
+    encode_u16_range(cmd.kp, 0.0, r.kp_max),
+    encode_u16_range(cmd.kd, 0.0, r.kd_max)};
+  std::array<uint8_t, 8> data{};
+  for (int i = 0; i < 4; ++i) {
+    data[2 * i] = static_cast<uint8_t>(fields[i] >> 8);
+    data[2 * i + 1] = static_cast<uint8_t>(fields[i] & 0xFF);
+  }
+  return {make_can_id(kCommTypeMotionControl, torque, motor_id), data};
 }
 
 }  // namespace robstride_motor
