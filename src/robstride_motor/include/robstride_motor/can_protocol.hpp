@@ -234,14 +234,15 @@ struct MotionCommand
   double torque_ff;  // Nm
 };
 
-// Model-specific MIT ranges (RobStride manuals; RS02 kp 0..500, kd 0..5).
+// Model-specific ranges (RobStride manuals; RS02 kp 0..500, kd 0..5): MIT commands and
+// status frames map each value over +/- max (kp and kd over 0..max).
 struct MotionRanges
 {
-  double position_max;
-  double velocity_max;
-  double torque_max;
-  double kp_max;
-  double kd_max;
+  double position_max;  // rad
+  double velocity_max;  // rad/s
+  double torque_max;  // Nm
+  double kp_max;  // Nm/rad
+  double kd_max;  // Nm*s/rad
 };
 
 // Type 1 frame: torque feedforward in ID bits 8..23; position, velocity, kp and kd

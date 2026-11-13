@@ -29,16 +29,7 @@ namespace
 {
 
 // Symmetric ranges used to clamp targets and decode status frames, from the RobStride manuals.
-struct MotorLimits
-{
-  double position_max;  // rad
-  double velocity_max;  // rad/s
-  double torque_max;  // Nm
-  double kp_max;  // MIT mode stiffness range, Nm/rad
-  double kd_max;  // MIT mode damping range, Nm*s/rad
-};
-
-const std::map<std::string, MotorLimits> kMotorLimitsByModel = {
+const std::map<std::string, MotionRanges> kMotorLimitsByModel = {
   {"RS02", {4.0 * M_PI, 44.0, 17.0, 500.0, 5.0}},
   {"RS03", {4.0 * M_PI, 20.0, 60.0, 5000.0, 100.0}},
   {"RS06", {4.0 * M_PI, 50.0, 36.0, 5000.0, 100.0}},
@@ -276,9 +267,10 @@ private:
     const MotionCommand command{
       target_position_, 0.0, active ? kp_ : 0.0, active ? kd_ : damping_kd_, 0.0};
     const auto [can_id, data] = encode_motion_command(
-      static_cast<uint8_t>(motor_id_), command,
-      {motor_limits_.position_max, motor_limits_.velocity_max, motor_limits_.torque_max,
-        motor_limits_.kp_max, motor_limits_.kd_max});
+      static_cast<uint8_t>(motor_id_), command, motor_limits_);
+    // A reply that missed the previous exchange's deadline would otherwise be read below as
+    // this command's reply, leaving the feedback one exchange behind from then on.
+    drain_replies();
     last_send_ = std::chrono::steady_clock::now();
     if (!send_frame(can_id, data)) {
       return false;
@@ -294,19 +286,8 @@ private:
       if (read(can_socket_, &reply, sizeof(reply)) != static_cast<ssize_t>(sizeof(reply))) {
         continue;
       }
-      const uint32_t arb = reply.can_id & CAN_EFF_MASK;
-      if (frame_motor_id(arb) != static_cast<uint8_t>(motor_id_)) {
-        continue;
-      }
-      std::array<uint8_t, 8> reply_data;
-      std::memcpy(reply_data.data(), reply.data, 8);
-      const uint8_t type = frame_comm_type(arb);
-      if (type == kCommTypeFaultReport) {
-        on_fault_report(describe_fault_report(reply_data));
-      } else if (type == kCommTypeStatus || type == kCommTypeActiveReport) {
-        on_status(decode_status(
-            arb, reply_data, motor_limits_.position_max, motor_limits_.velocity_max,
-            motor_limits_.torque_max));
+      const uint8_t type = handle_frame(reply);
+      if (type == kCommTypeStatus || type == kCommTypeActiveReport) {
         std_msgs::msg::Float64 msg;
         msg.data = status_.position;
         actual_position_publisher_->publish(msg);
@@ -316,6 +297,38 @@ private:
       }
     }
     return false;
+  }
+
+  // Handles every frame already waiting on the socket without blocking.
+  void drain_replies()
+  {
+    struct can_frame frame;
+    while (recv(can_socket_, &frame, sizeof(frame), MSG_DONTWAIT) ==
+      static_cast<ssize_t>(sizeof(frame)))
+    {
+      handle_frame(frame);
+    }
+  }
+
+  // Status and fault frames from this motor update the node's state. Returns the frame's
+  // comm type, or 0 for another motor's frame.
+  uint8_t handle_frame(const can_frame & frame)
+  {
+    const uint32_t arb = frame.can_id & CAN_EFF_MASK;
+    if (frame_motor_id(arb) != static_cast<uint8_t>(motor_id_)) {
+      return 0;
+    }
+    std::array<uint8_t, 8> data;
+    std::memcpy(data.data(), frame.data, 8);
+    const uint8_t type = frame_comm_type(arb);
+    if (type == kCommTypeStatus || type == kCommTypeActiveReport) {
+      on_status(decode_status(
+          arb, data, motor_limits_.position_max, motor_limits_.velocity_max,
+          motor_limits_.torque_max));
+    } else if (type == kCommTypeFaultReport) {
+      on_fault_report(describe_fault_report(data));
+    }
+    return type;
   }
 
   void clear_faults(std_srvs::srv::Trigger::Response & response)
@@ -371,7 +384,7 @@ private:
   double speed_limit_ = 0.0;
   double current_limit_ = 0.0;
   double can_timeout_ = 0.0;
-  MotorLimits motor_limits_{};
+  MotionRanges motor_limits_{};
   int can_socket_ = -1;
 
   double target_position_ = 0.0;
@@ -424,6 +437,19 @@ private:
       can_socket_ = -1;
       return false;
     }
+
+    // Only frames this motor sends to the host. Every motor node on the bus would otherwise
+    // also receive all the other motors' commands and replies.
+    const uint32_t mask = (0x1FU << 24) | (0xFFU << 8) | CAN_EFF_FLAG;
+    std::array<can_filter, 4> filters{};
+    const std::array<uint8_t, 4> types = {
+      kCommTypeStatus, kCommTypeParamRead, kCommTypeFaultReport, kCommTypeActiveReport};
+    for (size_t i = 0; i < types.size(); ++i) {
+      filters[i].can_id = (static_cast<uint32_t>(types[i]) << 24) |
+        (static_cast<uint32_t>(motor_id_) << 8) | CAN_EFF_FLAG;
+      filters[i].can_mask = mask;
+    }
+    setsockopt(can_socket_, SOL_CAN_RAW, CAN_RAW_FILTER, filters.data(), sizeof(filters));
 
     struct timeval tv;
     tv.tv_sec = 0;
@@ -511,25 +537,14 @@ private:
         continue;
       }
 
-      const uint32_t arb = reply.can_id & CAN_EFF_MASK;
-      if (frame_motor_id(arb) != static_cast<uint8_t>(motor_id_)) {
-        continue;
-      }
-
-      std::array<uint8_t, 8> reply_data;
-      std::memcpy(reply_data.data(), reply.data, 8);
-
-      // Status and fault frames queue up between polls; handle them while waiting.
-      const uint8_t type = frame_comm_type(arb);
-      if (type == kCommTypeStatus || type == kCommTypeActiveReport) {
-        on_status(decode_status(
-            arb, reply_data, motor_limits_.position_max, motor_limits_.velocity_max,
-            motor_limits_.torque_max));
-      } else if (type == kCommTypeFaultReport) {
-        on_fault_report(describe_fault_report(reply_data));
-      } else if (type == kCommTypeParamRead && decode_param_index(reply_data) == index) {
-        out_value = decode_param_float(reply_data);
-        return true;
+      // Status and fault frames queue up between polls; handle_frame takes care of them.
+      if (handle_frame(reply) == kCommTypeParamRead) {
+        std::array<uint8_t, 8> reply_data;
+        std::memcpy(reply_data.data(), reply.data, 8);
+        if (decode_param_index(reply_data) == index) {
+          out_value = decode_param_float(reply_data);
+          return true;
+        }
       }
     }
 
