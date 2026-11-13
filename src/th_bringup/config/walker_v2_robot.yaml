@@ -22,11 +22,18 @@ damping_kd: 1.0
 feedback_rate: 100.0
 
 imu:
-  # Rotation taking IMU-frame vectors into base_link (x forward, y left, z up), [w, x, y, z].
-  # The URDF imu_joint is identity; set this from the real mounting, then check with
-  # `ros2 topic echo /policy_bridge/projected_gravity` (upright: 0 0 -1; nose down: +x).
+  # VN-100 over its FTDI cable (this path is the team's unit; `ls /dev/serial/by-id`).
+  # vectornav_imu publishes in ROS frames (x forward, y left, z up; world ENU), not the
+  # sensor's own FRD/NED, so world_frame stays enu.
+  driver: vectornav
+  port: /dev/serial/by-id/usb-FTDI_USB-RS232-WE_AV0LSON8-if00-port0
+  baud: 115200
+  rate: 200.0
+  # Rotation taking IMU-frame vectors (ROS frames, as above) into base_link, [w, x, y, z].
+  # Identity = VN-100 mounted flat, label up, its x arrow pointing forward. For other
+  # mountings set it, then check `ros2 topic echo /policy_bridge/projected_gravity`
+  # (upright: 0 0 -1; nose down: +x; left side down: +y).
   rotation: [1.0, 0.0, 0.0, 0.0]
-  # World frame of the IMU's orientation output: enu (z up) or ned (z down, VectorNav default).
   world_frame: enu
 
 motors:
