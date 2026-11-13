@@ -5,12 +5,12 @@ Start the stack first (see the WalkerV2 sim section of the th_bringup README):
 
     ros2 launch th_bringup robot.launch.py sim:=true \\
       motors_config:=src/th_bringup/config/walker_v2_robot.yaml \\
-      policy_spec:=policies/walker_v2/policy_spec.json \\
-      model_path:=policies/walker_v2/policy.onnx walk_event:='A pressed'
+      policy_spec:=policies/walker_v2/v6/policy_spec.json \\
+      model_path:=policies/walker_v2/v6/policy.onnx walk_event:='A pressed'
 
 then, in a second shell:
 
-    python3 tools/walker/sim_check.py policies/walker_v2/policy_spec.json [--vx 0.3]
+    python3 tools/walker/sim_check.py policies/walker_v2/v6/policy_spec.json [--vx 0.3]
 
 It presses START (stand ramp), then A (walk), optionally commands a forward
 velocity, and reports the observation/target/IMU/motor rates, the bridge mode,
