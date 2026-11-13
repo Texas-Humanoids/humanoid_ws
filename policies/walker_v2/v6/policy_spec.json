@@ -1,0 +1,25 @@
+{
+  "_source": "v6_sym (Isaac Lab, 800 iterations, 2026-11-13). Values checked against env.yaml in this folder: actuators, observation terms and scales, decimation 4 at dt 0.005.",
+  "robot": "walker_v2",
+  "joint_order": [
+    "left_hip_pitch_joint", "left_hip_roll_joint", "left_hip_yaw_joint", "left_knee_pitch_joint", "left_ankle_pitch_joint",
+    "right_hip_pitch_joint", "right_hip_roll_joint", "right_hip_yaw_joint", "right_knee_pitch_joint", "right_ankle_pitch_joint"
+  ],
+  "default_joint_pos": [-0.2, 0.0, 0.0, 0.4, -0.2, -0.2, 0.0, 0.0, 0.4, -0.2],
+  "kp": [60.0, 60.0, 25.0, 60.0, 30.0, 60.0, 60.0, 25.0, 60.0, 30.0],
+  "kd": [3.0, 3.0, 1.0, 3.0, 1.5, 3.0, 3.0, 1.0, 3.0, 1.5],
+  "action_scale": 0.25,
+  "action_clip": 4.0,
+  "policy_dt": 0.02,
+  "gait_period": 0.7,
+  "observations": [
+    {"name": "base_ang_vel", "scale": 0.25},
+    {"name": "projected_gravity", "scale": 1.0},
+    {"name": "velocity_command", "scale": 1.0},
+    {"name": "joint_pos_rel", "scale": 1.0},
+    {"name": "joint_vel", "scale": 0.05},
+    {"name": "last_action", "scale": 1.0},
+    {"name": "gait_phase", "scale": 1.0}
+  ],
+  "observation_size": 41
+}
