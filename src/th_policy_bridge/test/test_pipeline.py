@@ -370,3 +370,22 @@ def test_short_feedback_gap_while_armed_does_not_disarm(harness):
 
     h.spin_for(0.5, step=imu_and_targets_only)
     assert 'Disarmed (motor feedback is stale)' in h.diagnostics()
+
+
+def test_stand_ramp_starts_where_a_joint_outside_its_limits_is(harness):
+    h = harness(walk_event='A pressed', stand_ramp_time=1.0)
+    # Hip at 0.9 rad, past its 0.5 upper limit (default 0.0).
+    h.motor_state = {'hip': (0.9, 0.0), 'knee': (0.6, 0.0)}
+
+    def step():
+        h.publish_sensors()
+        h.publish_targets([0.0, 0.4, -0.3])
+
+    h.arm(step)
+    first = h.commands['hip'][0].data
+    assert first == pytest.approx(0.9, abs=0.05)  # no jump to the 0.5 limit
+    h.spin_for(1.3, step=step)
+    hip = [c.data for c in h.commands['hip']]
+    assert hip[-1] == pytest.approx(0.0, abs=1e-6)
+    assert max(hip) <= 0.9 + 1e-6  # never further out than it started
+    assert all(b <= a + 1e-6 for a, b in zip(hip, hip[1:]))  # monotonic toward default
