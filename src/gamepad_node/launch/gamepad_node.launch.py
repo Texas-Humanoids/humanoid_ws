@@ -27,6 +27,9 @@ def generate_launch_description():
             # order for every controller SDL recognizes, including Xbox over Bluetooth.
             package='joy', executable='game_controller_node', name='game_controller_node',
             parameters=[{'autorepeat_rate': 20.0}],
+            # SDL can crash (SIGSEGV) when a Bluetooth controller reconnects mid-run. Restart
+            # it so the arm/disarm buttons come back; gamepad_node sends a stop meanwhile.
+            respawn=True, respawn_delay=1.0, output='screen',
             condition=LaunchConfigurationEquals('input_mode', 'controller')),
         Node(
             package='gamepad_node', executable='gamepad_node', name='gamepad_node',
