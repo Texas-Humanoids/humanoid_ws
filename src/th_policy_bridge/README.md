@@ -27,7 +27,7 @@ each multiplied by its entry in `observation_scales`:
 | `projected_gravity` | 3 | IMU orientation, rotated into the base frame |
 | `joint_pos_rel` | N | joint positions minus the default pose |
 | `joint_vel` | N | joint velocities |
-| `last_action` | N | previous policy action (zero while standing) |
+| `last_action` | N | previous policy action (zero while standing, so WALK starts from zero) |
 | `gait_phase` | 2 | sin, cos of 2π·t/`gait_period`; t starts at WALK, 0 before |
 
 With no `observation_terms` the layout is the Berkeley one (command, angular

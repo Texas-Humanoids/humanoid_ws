@@ -42,24 +42,9 @@ inline Quaternion conjugate(const Quaternion & q) {return {q.w, -q.x, -q.y, -q.z
 // World gravity direction (0, 0, -1) expressed in the body frame of orientation q.
 // For an IMU whose world frame is NED (z down), gravity is (0, 0, +1): pass
 // world_z_down = true.
-inline std::array<double, 3> projected_gravity(const Quaternion & q, bool world_z_down)
+inline std::array<double, 3> projected_gravity(const Quaternion & q, bool world_z_down = false)
 {
   return rotate(conjugate(q), {0.0, 0.0, world_z_down ? 1.0 : -1.0});
-}
-
-// World gravity direction (0, 0, -1) expressed in the body frame of orientation q.
-inline std::array<double, 3> projected_gravity(const Quaternion & q)
-{
-  const double norm = std::sqrt(q.w * q.w + q.x * q.x + q.y * q.y + q.z * q.z);
-  if (!std::isfinite(norm) || norm < 1e-6) {
-    throw std::invalid_argument("IMU orientation is not a valid quaternion");
-  }
-  const double w = q.w / norm;
-  const double x = q.x / norm;
-  const double y = q.y / norm;
-  const double z = q.z / norm;
-  // Negated third row of the body-to-world rotation matrix.
-  return {-2.0 * (x * z - w * y), -2.0 * (y * z + w * x), -(1.0 - 2.0 * (x * x + y * y))};
 }
 
 // Recovers the clipped policy actions from published targets (target = default + scale * action).

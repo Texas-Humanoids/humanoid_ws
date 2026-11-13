@@ -250,13 +250,19 @@ private:
         get_logger(), *get_clock(), 1000, "Ignoring targets with a different joint order");
       return;
     }
+    std::vector<double> actions;
     try {
-      previous_actions_ = tb::actions_from_targets(msg.position, defaults_, action_scale_);
+      actions = tb::actions_from_targets(msg.position, defaults_, action_scale_);
     } catch (const std::exception & error) {
       RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 1000, "Ignoring targets: %s", error.what());
       return;
     }
     target_time_ = SteadyClock::now();
+    // While standing the ramp, not the policy, drives the joints, so the last action stays
+    // zero and WALK starts from a zero last action, as a training episode does.
+    if (mode_ != Mode::kStand) {
+      previous_actions_ = std::move(actions);
+    }
     if (mode_ != Mode::kWalk) {
       return;
     }
@@ -341,6 +347,7 @@ private:
       } else {
         ramp_start_ = measured_joints();
         ramp_time_ = SteadyClock::now();
+        previous_actions_.assign(joint_names_.size(), 0.0);
         set_mode(Mode::kStand);
         RCLCPP_WARN(
           get_logger(), "STAND: ramping %zu motors to the default pose over %.1f s; '%s' walks",
@@ -417,9 +424,7 @@ private:
       in.joint_positions[motor.joint] = motor.position;
       in.joint_velocities[motor.joint] = motor.velocity;
     }
-    // While standing the ramp, not the policy, drives the joints, so its last action is zero.
-    in.previous_actions = mode_ == Mode::kStand ?
-      std::vector<double>(joint_names_.size(), 0.0) : previous_actions_;
+    in.previous_actions = previous_actions_;
     in.gait_phase = 0.0;
     if (mode_ == Mode::kWalk && gait_period_ > 0.0) {
       const double t = std::chrono::duration<double>(SteadyClock::now() - walk_time_).count();
