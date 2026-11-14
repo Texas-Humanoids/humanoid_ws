@@ -109,7 +109,7 @@ motors:
     lower: -0.7854
     upper: 0.7854
   - joint: right_knee_pitch_joint
-    motor_id: null
+    motor_id: 14  # UUID 8c8938000c333413
     motor_model: RS03
     can_interface: can_usb
     direction: 1.0
