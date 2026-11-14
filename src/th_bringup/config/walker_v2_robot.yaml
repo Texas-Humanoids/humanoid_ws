@@ -41,7 +41,7 @@ imu:
 
 motors:
   - joint: left_hip_pitch_joint
-    motor_id: null
+    motor_id: 1  # UUID bd4393c79c90b014
     motor_model: RS03
     can_interface: can_usb
     direction: 1.0
