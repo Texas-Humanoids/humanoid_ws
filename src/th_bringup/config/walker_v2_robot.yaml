@@ -7,7 +7,7 @@
 #
 # FILL IN before the first run (the launch refuses while any is null):
 #   motor_id  - find_motor_id.sh can_usb. IDs follow the joint order of each leg
-#               (hip pitch, hip roll, hip yaw, knee, ankle): left 1-5, right 11-15.
+#               (hip pitch, hip roll, hip yaw, knee, ankle): left 11-15, right 21-25.
 #   offset    - tools/walker/calibrate_offsets.py (robot hanging in the default pose)
 # VERIFY:
 #   direction - tools/walker/wiggle_test.py; +joint must move the foot as the URDF says
@@ -41,7 +41,7 @@ imu:
 
 motors:
   - joint: left_hip_pitch_joint
-    motor_id: 1  # UUID bd4393c79c90b014
+    motor_id: 11  # UUID 3f39300290613713
     motor_model: RS03
     can_interface: can_usb
     direction: 1.0
@@ -49,7 +49,7 @@ motors:
     lower: -0.7854
     upper: 0.7854
   - joint: left_hip_roll_joint
-    motor_id: null
+    motor_id: 12  # UUID 484193c79c90b014
     motor_model: RS03
     can_interface: can_usb
     direction: 1.0
@@ -65,7 +65,7 @@ motors:
     lower: -0.7854
     upper: 0.7854
   - joint: left_knee_pitch_joint
-    motor_id: null
+    motor_id: 14  # UUID 8c8938000c333413
     motor_model: RS03
     can_interface: can_usb
     direction: 1.0
@@ -85,7 +85,7 @@ motors:
     stand_kp: 80.0
     stand_kd: 3.0
   - joint: right_hip_pitch_joint
-    motor_id: 11  # UUID 3f39300290613713
+    motor_id: 21  # UUID bd4393c79c90b014
     motor_model: RS03
     can_interface: can_usb
     direction: 1.0
@@ -93,7 +93,7 @@ motors:
     lower: -0.7854
     upper: 0.7854
   - joint: right_hip_roll_joint
-    motor_id: 12  # UUID 484193c79c90b014
+    motor_id: null
     motor_model: RS03
     can_interface: can_usb
     direction: 1.0
@@ -109,7 +109,7 @@ motors:
     lower: -0.7854
     upper: 0.7854
   - joint: right_knee_pitch_joint
-    motor_id: 14  # UUID 8c8938000c333413
+    motor_id: null
     motor_model: RS03
     can_interface: can_usb
     direction: 1.0

@@ -16,7 +16,7 @@ Steps, each checked before the next:
   5. Write motor_id and the motor's UUID into the robot yaml.
 
 IDs follow each leg's joint order (hip pitch, hip roll, hip yaw, knee, ankle):
-left 1-5, right 11-15. Offsets and directions are not touched: measure them on the
+left 11-15, right 21-25. Offsets and directions are not touched: measure them on the
 mounted robot with calibrate_offsets.py and wiggle_test.py.
 """
 
@@ -34,7 +34,7 @@ import yaml
 
 HOST = 0xFF
 LEG_ORDER = ['hip_pitch', 'hip_roll', 'hip_yaw', 'knee_pitch', 'ankle_pitch']
-LEG_BASE = {'left': 1, 'right': 11}
+LEG_BASE = {'left': 11, 'right': 21}
 # Factory torque limit (param 0x700B) equals the model's peak torque.
 MODEL_TORQUE = {'RS02': 17.0, 'RS03': 60.0, 'RS06': 36.0}
 FAULT_BITS = ['undervoltage', 'overcurrent', 'overtemperature', 'magnetic encoder',
