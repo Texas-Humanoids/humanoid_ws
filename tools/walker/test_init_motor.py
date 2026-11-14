@@ -91,18 +91,18 @@ class InitMotorTest(unittest.TestCase):
         return im.configured(open(self.yaml).read())
 
     def test_scheme(self):
-        self.assertEqual(im.scheme_id('left_hip_pitch_joint'), 1)
-        self.assertEqual(im.scheme_id('left_ankle_pitch_joint'), 5)
-        self.assertEqual(im.scheme_id(im.joint_name('right_hip_pitch')), 11)
-        self.assertEqual(im.scheme_id(im.joint_name('right_knee_pitch')), 14)
+        self.assertEqual(im.scheme_id('left_hip_pitch_joint'), 11)
+        self.assertEqual(im.scheme_id('left_ankle_pitch_joint'), 15)
+        self.assertEqual(im.scheme_id(im.joint_name('right_hip_pitch')), 21)
+        self.assertEqual(im.scheme_id(im.joint_name('right_knee_pitch')), 24)
         with self.assertRaises(im.InitError):
             im.joint_name('right_elbow')
 
     def test_new_motor_gets_id_moves_and_is_recorded(self):
         m = FakeMotor('3f39300290613713')
         bus = self.run_tool('right_hip_pitch', [[12, m]])
-        self.assertEqual(bus.motors[0][0], 11)
-        self.assertEqual(self.ids()['right_hip_pitch_joint'], (11, '3f39300290613713'))
+        self.assertEqual(bus.motors[0][0], 21)
+        self.assertEqual(self.ids()['right_hip_pitch_joint'], (21, '3f39300290613713'))
         self.assertFalse(m.enabled)
         self.assertEqual(m.params[im.P_SPEED_LIMIT], 10.0)  # limits restored after the move
         self.assertEqual(m.params[im.P_RUN_MODE], 0)
@@ -110,10 +110,10 @@ class InitMotorTest(unittest.TestCase):
 
     def test_set_up_motors_stay_on_the_bus(self):
         self.run_tool('right_hip_pitch', [[12, FakeMotor('aa' * 8)]])
-        bus = self.run_tool('right_hip_roll', [[11, FakeMotor('aa' * 8)],
+        bus = self.run_tool('right_hip_roll', [[21, FakeMotor('aa' * 8)],
                                                [127, FakeMotor('bb' * 8)]])
-        self.assertEqual(sorted(i for i, _ in bus.motors), [11, 12])
-        self.assertEqual(self.ids()['right_hip_roll_joint'], (12, 'bb' * 8))
+        self.assertEqual(sorted(i for i, _ in bus.motors), [21, 22])
+        self.assertEqual(self.ids()['right_hip_roll_joint'], (22, 'bb' * 8))
 
     def test_two_motors_on_one_id_is_refused(self):
         with self.assertRaisesRegex(im.InitError, '2 motors answer at ID 127'):
@@ -124,7 +124,7 @@ class InitMotorTest(unittest.TestCase):
     def test_new_motor_on_an_assigned_id_is_refused(self):
         self.run_tool('right_hip_roll', [[12, FakeMotor('aa' * 8)]])
         with self.assertRaisesRegex(im.InitError, 'unplug the right_hip_roll_joint motor'):
-            self.run_tool('right_knee_pitch', [[12, FakeMotor('bb' * 8)]])
+            self.run_tool('right_knee_pitch', [[22, FakeMotor('bb' * 8)]])
 
     def test_two_new_motors_are_refused(self):
         with self.assertRaisesRegex(im.InitError, 'one new motor at a time'):
@@ -148,14 +148,14 @@ class InitMotorTest(unittest.TestCase):
     def test_rerun_is_a_no_op(self):
         self.run_tool('right_hip_pitch', [[12, FakeMotor('aa' * 8)]])
         before = open(self.yaml).read()
-        self.run_tool('right_hip_pitch', [[11, FakeMotor('aa' * 8)]], no_move=True)
+        self.run_tool('right_hip_pitch', [[21, FakeMotor('aa' * 8)]], no_move=True)
         self.assertEqual(open(self.yaml).read(), before)
 
     def test_no_move_leaves_motor_untouched(self):
         m = FakeMotor('aa' * 8)
         self.run_tool('left_knee_pitch', [[127, m]], no_move=True)
         self.assertEqual(m.params[im.P_RUN_MODE], 0)
-        self.assertEqual(self.ids()['left_knee_pitch_joint'], (4, 'aa' * 8))
+        self.assertEqual(self.ids()['left_knee_pitch_joint'], (14, 'aa' * 8))
 
     def test_declining_the_id_change_changes_nothing(self):
         m = FakeMotor('aa' * 8)
