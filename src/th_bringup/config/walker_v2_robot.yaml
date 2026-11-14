@@ -57,7 +57,7 @@ motors:
     lower: -0.35
     upper: 0.7854
   - joint: left_hip_yaw_joint
-    motor_id: null
+    motor_id: 13  # UUID 0a4030209c233711
     motor_model: RS02
     can_interface: can_usb
     direction: 1.0
@@ -73,7 +73,7 @@ motors:
     lower: 0.0
     upper: 2.0944
   - joint: left_ankle_pitch_joint
-    motor_id: null
+    motor_id: 15  # UUID b7453b4e2071300b
     motor_model: RS06
     can_interface: can_usb
     direction: 1.0
@@ -117,7 +117,7 @@ motors:
     lower: 0.0
     upper: 2.0944
   - joint: right_ankle_pitch_joint
-    motor_id: null
+    motor_id: 25  # UUID 6e453b4e2071300b
     motor_model: RS06
     can_interface: can_usb
     direction: 1.0
