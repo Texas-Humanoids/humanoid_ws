@@ -93,7 +93,7 @@ motors:
     lower: -0.7854
     upper: 0.7854
   - joint: right_hip_roll_joint
-    motor_id: null
+    motor_id: 22  # UUID 9e8d93c79c90b014
     motor_model: RS03
     can_interface: can_usb
     direction: 1.0
