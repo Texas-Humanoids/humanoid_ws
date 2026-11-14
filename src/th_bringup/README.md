@@ -215,8 +215,16 @@ Observation normalization must be baked into the ONNX.
 
 ### First power-on checklist (robot hanging on the gantry)
 
-1. **IDs.** `src/robstride_motor/scripts/find_motor_id.sh can_usb` and fill
-   `motor_id` per joint. RS02 = hip yaw, RS06 = ankle, RS03 = everything else.
+1. **IDs.** Set up each motor once, before mounting it: plug in one new motor
+   (motors already set up can stay on the bus), then run
+   `python3 tools/walker/init_motor.py right_hip_roll` with no motor nodes running.
+   It finds the motor, checks faults, voltage and model, sets its CAN ID
+   (left leg 1-5, right leg 11-15, in the order hip pitch, hip roll, hip yaw,
+   knee, ankle), does a small test move (`--no-move` to skip), and writes the
+   ID and the motor's UUID into `walker_v2_robot.yaml`. Only one motor at a time
+   needs to be new: two motors on the same ID cannot be told apart, so new
+   motors, which often share a factory ID, go on the bus one by one.
+   RS02 = hip yaw, RS06 = ankle, RS03 = everything else.
 2. **Offsets.** For the first launch, copy the yaml and set every `offset` to
    0.0. Launch it (motors damp; nothing moves), hold the legs in the default
    pose, then run
