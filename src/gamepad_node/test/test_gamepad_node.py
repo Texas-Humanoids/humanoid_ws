@@ -55,7 +55,7 @@ class RunningNode:
     def send(self, axes=None, enabled=True, buttons=None):
         msg = Joy()
         msg.axes = axes if axes is not None else [0.0, 1.0, 0.0, 0.0]
-        msg.buttons = buttons if buttons is not None else [0, 0, 0, 0, int(enabled)]
+        msg.buttons = buttons if buttons is not None else [0] * 9 + [int(enabled)]  # LB = 9
         self.joy.publish(msg)
 
     def close(self):
@@ -128,7 +128,7 @@ def test_watchdog_stops_and_input_can_resume(running_node):
 
 def test_enable_release_mapping_and_button_edges(running_node):
     node = running_node(joy_timeout='0.0')
-    node.send(axes=[0.5, 1.0, 0.0, -0.25])
+    node.send(axes=[0.5, 1.0, -0.25, 0.0])
     node.wait(lambda: bool(node.velocities) and bool(node.buttons))
     msg = node.velocities[-1]
     assert (msg.linear.x, msg.linear.y, msg.angular.z) == (0.5, 0.25, -0.25)
@@ -154,7 +154,7 @@ def test_enable_release_mapping_and_button_edges(running_node):
 
 def test_disabled_deadman_and_malformed_axes(running_node):
     node = running_node(enable_button='-1', joy_timeout='0.0')
-    node.send(axes=[2.0, float('nan'), 0.0, float('inf')], enabled=False)
+    node.send(axes=[2.0, float('nan'), float('inf'), 0.0], enabled=False)
     node.wait(lambda: bool(node.velocities))
     msg = node.velocities[-1]
     assert (msg.linear.x, msg.linear.y, msg.angular.z) == (0.0, 0.5, 0.0)

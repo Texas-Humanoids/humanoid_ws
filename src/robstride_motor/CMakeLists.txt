@@ -9,6 +9,8 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(diagnostic_msgs REQUIRED)
+find_package(std_srvs REQUIRED)
 
 add_executable(robstride_motor_node
   src/robstride_motor_node.cpp
@@ -17,6 +19,8 @@ add_executable(robstride_motor_node
 ament_target_dependencies(robstride_motor_node
   rclcpp
   std_msgs
+  diagnostic_msgs
+  std_srvs
 )
 
 target_include_directories(robstride_motor_node PUBLIC
@@ -45,7 +49,7 @@ if(BUILD_TESTING)
   )
 
   ament_add_gtest(test_node_safety test/test_node_safety.cpp)
-  ament_target_dependencies(test_node_safety rclcpp std_msgs)
+  ament_target_dependencies(test_node_safety rclcpp std_msgs diagnostic_msgs std_srvs)
   target_include_directories(test_node_safety PRIVATE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   )

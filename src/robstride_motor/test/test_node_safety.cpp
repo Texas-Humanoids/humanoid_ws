@@ -34,6 +34,7 @@ int close_count = 0;
 int socket_count = 0;
 float starting_position = 0.25f;
 uint8_t motor_id = 1;
+std::vector<can_frame> queued_frames;  // returned by read_frame before the reply
 
 int open_socket(int, int, int)
 {
@@ -66,6 +67,11 @@ ssize_t write_frame(int, const void * data, size_t size)
 
 ssize_t read_frame(int, void * data, size_t size)
 {
+  if (!queued_frames.empty()) {
+    std::memcpy(data, &queued_frames.front(), sizeof(can_frame));
+    queued_frames.erase(queued_frames.begin());
+    return static_cast<ssize_t>(size);
+  }
   can_frame frame{};
   frame.can_id = CAN_EFF_FLAG |
     robstride_motor::make_can_id(robstride_motor::kCommTypeParamRead, motor_id, 0xFF);
@@ -126,6 +132,7 @@ protected:
     test_can::socket_count = 0;
     test_can::starting_position = 0.25f;
     test_can::motor_id = 1;
+    test_can::queued_frames.clear();
   }
 
   rclcpp::NodeOptions options(int64_t id = 1)
@@ -170,10 +177,107 @@ TEST_F(NodeSafety, AcceptsBoundaryIdsWithoutTruncation)
   }
 }
 
+TEST_F(NodeSafety, AcceptsRs03AndRejectsInvalidLimits)
+{
+  {
+    auto rs03 = options();
+    rs03.append_parameter_override("motor_model", "RS03");
+    RobstrideMotorNode node(rs03);
+    EXPECT_EQ(count_frames(robstride_motor::kCommTypeEnable), 1);
+  }
+  for (const char * name : {"speed_limit", "current_limit", "feedback_rate"}) {
+    reset_transport();
+    auto invalid = options();
+    invalid.append_parameter_override(name, 0.0);
+    EXPECT_THROW(RobstrideMotorNode node(invalid), std::invalid_argument);
+    EXPECT_EQ(test_can::socket_count, 0);
+  }
+  auto unknown = options();
+  unknown.append_parameter_override("motor_model", "RS99");
+  EXPECT_THROW(RobstrideMotorNode node(unknown), std::runtime_error);
+}
+
+TEST_F(NodeSafety, StartupClearsFaultsArmsWatchdogAndShutdownStopsReporting)
+{
+  {
+    RobstrideMotorNode node(options());
+    ASSERT_GE(test_can::sent_frames.size(), 9u);
+    const auto & first = test_can::sent_frames.front();
+    EXPECT_EQ((first.can_id >> 24) & 0x1F, robstride_motor::kCommTypeStop);
+    EXPECT_EQ(first.data[0], 1);  // clear faults
+    const auto timeout = robstride_motor::encode_param_u32(
+      robstride_motor::kParamCanTimeout, robstride_motor::can_timeout_counts(0.5));
+    const auto active = robstride_motor::encode_active_report(true);
+    bool saw_timeout = false;
+    bool saw_active = false;
+    for (const auto & frame : test_can::sent_frames) {
+      saw_timeout |= std::memcmp(frame.data, timeout.data(), 8) == 0;
+      saw_active |= ((frame.can_id >> 24) & 0x1F) == robstride_motor::kCommTypeActiveReport &&
+        std::memcmp(frame.data, active.data(), 8) == 0;
+    }
+    EXPECT_TRUE(saw_timeout);
+    EXPECT_TRUE(saw_active);
+    test_can::sent_frames.clear();
+  }
+  ASSERT_EQ(test_can::sent_frames.size(), 2u);
+  EXPECT_EQ(
+    (test_can::sent_frames[0].can_id >> 24) & 0x1F, robstride_motor::kCommTypeActiveReport);
+  EXPECT_EQ(test_can::sent_frames[0].data[6], 0);  // reporting off
+  EXPECT_EQ((test_can::sent_frames[1].can_id >> 24) & 0x1F, robstride_motor::kCommTypeStop);
+}
+
+TEST_F(NodeSafety, StatusAndFaultFramesDoNotDisturbTheStartingPositionRead)
+{
+  const auto frame = [](uint8_t type, uint32_t middle, std::array<uint8_t, 8> data) {
+      can_frame f{};
+      f.can_id = CAN_EFF_FLAG | (static_cast<uint32_t>(type) << 24) | (middle << 8) | 0xFE;
+      f.can_dlc = 8;
+      std::memcpy(f.data, data.data(), 8);
+      return f;
+    };
+  // A faulted status frame and a fault report from this motor, plus another motor's
+  // parameter reply that looks like the requested one.
+  test_can::queued_frames = {
+    frame(robstride_motor::kCommTypeStatus, (0x04u << 8) | 1, {0x7F, 0xFF, 0, 0, 0, 0, 0, 0}),
+    frame(robstride_motor::kCommTypeFaultReport, 1, {0x01, 0, 0, 0, 0, 0, 0, 0}),
+    frame(robstride_motor::kCommTypeParamRead, 2,
+      robstride_motor::encode_param_float(robstride_motor::kParamMechPos, 3.0f)),
+  };
+  RobstrideMotorNode node(options());
+  EXPECT_TRUE(test_can::queued_frames.empty());
+  bool saw_initial_target = false;
+  for (const auto & sent : test_can::sent_frames) {
+    std::array<uint8_t, 8> data;
+    std::memcpy(data.data(), sent.data, 8);
+    if (((sent.can_id >> 24) & 0x1F) == robstride_motor::kCommTypeParamWrite &&
+      robstride_motor::decode_param_index(data) == robstride_motor::kParamLocRef)
+    {
+      EXPECT_FLOAT_EQ(robstride_motor::decode_param_float(data), 0.25f);
+      saw_initial_target = true;
+    }
+  }
+  EXPECT_TRUE(saw_initial_target);
+}
+
+TEST_F(NodeSafety, RejectsInvalidCanTimeout)
+{
+  for (const double timeout : {-0.1, 10.5, 0.03}) {  // 0.03 s is under two 50 Hz polls
+    reset_transport();
+    auto invalid = options();
+    invalid.append_parameter_override("can_timeout", timeout);
+    EXPECT_THROW(RobstrideMotorNode node(invalid), std::invalid_argument);
+    EXPECT_EQ(test_can::socket_count, 0);
+  }
+  auto disabled = options();
+  disabled.append_parameter_override("can_timeout", 0.0);
+  EXPECT_NO_THROW(RobstrideMotorNode node(disabled));
+}
+
 TEST_F(NodeSafety, EveryFailedStartupWritePreventsEnableAndClosesSocket)
 {
-  // Stop, mode, speed, current, position read request, initial target, enable.
-  for (int failed_write = 1; failed_write <= 7; ++failed_write) {
+  // Stop, mode, speed, current, CAN timeout, active report, position read request,
+  // initial target, enable.
+  for (int failed_write = 1; failed_write <= 9; ++failed_write) {
     reset_transport();
     test_can::fail_write = failed_write;
     EXPECT_THROW(RobstrideMotorNode node(options()), std::runtime_error);
@@ -205,9 +309,9 @@ TEST_F(NodeSafety, ConstructorExceptionStopsAndClosesSocket)
 TEST_F(NodeSafety, ExceptionAfterEnableStopsAndClosesSocket)
 {
   EXPECT_THROW(
-    {
-      RobstrideMotorNode node(options());
-      throw std::runtime_error("Injected executor exception");
+  {
+    RobstrideMotorNode node(options());
+    throw std::runtime_error("Injected executor exception");
     }, std::runtime_error);
   EXPECT_EQ(count_frames(robstride_motor::kCommTypeEnable), 1);
   EXPECT_EQ(count_frames(robstride_motor::kCommTypeStop), 2);

@@ -31,11 +31,11 @@ TEST(InputMapping, ControllerAxes)
     {{0, 1, 0, 0}, {0.5, 0, 0}},                 // Forward.
     {{1, 0, 0, 0}, {0, 0.4, 0}},                 // Sidestep left.
     {{-1, 1, 0, 0}, {0.5, -0.4, 0}},             // Diagonal.
-    {{0, 0, 0, -0.5}, {0, 0, -0.5}},             // Turn right.
-    {{0, 0, 1, 0, 1, 1, 0, 0}, {}},             // Unmapped axes.
+    {{0, 0, -0.5, 0}, {0, 0, -0.5}},             // Turn right.
+    {{0, 0, 0, 1, 1, 1, 0, 0}, {}},             // Unmapped axes.
     {{0, 0.5, 0, 0}, {0.25, 0, 0}},              // Partial deflection.
-    {{0, 2, 0, -3}, {0.5, 0, -1}},               // Clamping.
-    {{0, kNaN, 0, kInf}, {}}                     // Invalid values.
+    {{0, 2, -3, 0}, {0.5, 0, -1}},               // Clamping.
+    {{0, kNaN, kInf, 0}, {}}                     // Invalid values.
   };
   const gt::ScaleConfig scales{0.5, 0.4, 1.0, 0.1};
   for (std::size_t i = 0; i < std::size(cases); ++i) {
@@ -76,8 +76,10 @@ TEST(InputMapping, KeyboardDirectionsAndScaling)
 TEST(InputMapping, ButtonNames)
 {
   EXPECT_EQ(gt::button_name(0), "A");
-  EXPECT_EQ(gt::button_name(4), "LB");
-  EXPECT_EQ(gt::button_name(10), "R_STICK");
+  EXPECT_EQ(gt::button_name(4), "BACK");
+  EXPECT_EQ(gt::button_name(6), "START");
+  EXPECT_EQ(gt::button_name(9), "LB");
+  EXPECT_EQ(gt::button_name(14), "DPAD_RIGHT");
   EXPECT_EQ(gt::button_name(15), "BUTTON_15");
 }
 
