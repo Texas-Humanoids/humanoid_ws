@@ -15,6 +15,7 @@
 #include "sensor_msgs/msg/imu.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
 #include "std_msgs/msg/float32_multi_array.hpp"
+#include "std_msgs/msg/float64_multi_array.hpp"
 #include "std_msgs/msg/float64.hpp"
 #include "std_msgs/msg/string.hpp"
 #include "th_policy_bridge/joint_mapping.hpp"
@@ -64,6 +65,17 @@ public:
     const auto uppers = declare_parameter<std::vector<double>>(
       "upper_limits", std::vector<double>{});
     const double rate = declare_parameter<double>("rate", 50.0);
+    // Per-motor MIT gains (same order as motor_joints): the trained gains used while
+    // walking and disarmed, and the gains held during STAND. STAND can be stiffer, so the
+    // robot holds itself up before the policy takes over. Empty = gains are not managed.
+    const auto policy_kp = declare_parameter<std::vector<double>>(
+      "policy_kp", std::vector<double>{});
+    const auto policy_kd = declare_parameter<std::vector<double>>(
+      "policy_kd", std::vector<double>{});
+    const auto stand_kp = declare_parameter<std::vector<double>>(
+      "stand_kp", std::vector<double>{});
+    const auto stand_kd = declare_parameter<std::vector<double>>(
+      "stand_kd", std::vector<double>{});
     layout_ = tb::parse_layout(
       declare_parameter<std::vector<std::string>>("observation_terms", std::vector<std::string>{}),
       declare_parameter<std::vector<double>>("observation_scales", std::vector<double>{}));
@@ -143,6 +155,8 @@ public:
       tb::validate(motor.calibration, motor_joints[m]);
       motor.command = create_publisher<std_msgs::msg::Float64>(
         namespaces[m] + "/motor/target_position", 10);
+      motor.gains = create_publisher<std_msgs::msg::Float64MultiArray>(
+        namespaces[m] + "/motor/gains", 10);
       motor.position_sub = create_subscription<std_msgs::msg::Float64>(
         namespaces[m] + "/motor/actual_position", 10,
         [this, m](const std_msgs::msg::Float64 & msg) {
@@ -161,6 +175,30 @@ public:
       motors_.push_back(std::move(motor));
     }
     previous_actions_.assign(joint_names_.size(), 0.0);
+
+    manage_gains_ = !policy_kp.empty();
+    if (manage_gains_) {
+      if (policy_kd.size() != n || policy_kp.size() != n || stand_kp.size() != n ||
+        stand_kd.size() != n)
+      {
+        throw std::invalid_argument(
+                "policy_kp, policy_kd, stand_kp and stand_kd need one entry per motor");
+      }
+      for (size_t m = 0; m < n; ++m) {
+        for (double g : {policy_kp[m], policy_kd[m], stand_kp[m], stand_kd[m]}) {
+          if (!std::isfinite(g) || g < 0.0) {
+            throw std::invalid_argument("Gains must be finite and >= 0");
+          }
+        }
+        motors_[m].policy_gains = {policy_kp[m], policy_kd[m]};
+        motors_[m].stand_gains = {stand_kp[m], stand_kd[m]};
+        if (stand_kp[m] != policy_kp[m] || stand_kd[m] != policy_kd[m]) {
+          RCLCPP_INFO(
+            get_logger(), "%s: STAND gains kp %.1f kd %.2f, policy gains kp %.1f kd %.2f",
+            motor_joints[m].c_str(), stand_kp[m], stand_kd[m], policy_kp[m], policy_kd[m]);
+        }
+      }
+    }
 
     if (!require_imu_) {
       RCLCPP_WARN(get_logger(), "require_imu is false: assuming upright and not rotating");
@@ -218,6 +256,9 @@ private:
     rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr command;
     rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr position_sub;
     rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr velocity_sub;
+    rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr gains;
+    std::array<double, 2> policy_gains{};
+    std::array<double, 2> stand_gains{};
     double position{};  // joint space
     double velocity{};
     SteadyClock::time_point stamp{};
@@ -296,7 +337,23 @@ private:
   void set_mode(Mode mode)
   {
     mode_ = mode;
+    publish_gains();
     publish_mode();
+  }
+
+  // STAND uses the stand gains; WALK and DISARMED use the policy's trained gains (when
+  // disarmed the motors damp anyway, but the next WALK must start on the trained gains).
+  void publish_gains()
+  {
+    if (!manage_gains_) {
+      return;
+    }
+    for (const auto & motor : motors_) {
+      const auto & g = mode_ == Mode::kStand ? motor.stand_gains : motor.policy_gains;
+      std_msgs::msg::Float64MultiArray msg;
+      msg.data = {g[0], g[1]};
+      motor.gains->publish(msg);
+    }
   }
 
   void publish_mode()
@@ -403,6 +460,12 @@ private:
 
   void on_tick()
   {
+    // Re-send the gains now and then, so a lost message cannot leave a motor on the
+    // wrong gains (e.g. stiff STAND gains while the policy walks).
+    if (++gain_refresh_ticks_ >= 25) {
+      gain_refresh_ticks_ = 0;
+      publish_gains();
+    }
     if (mode_ == Mode::kWalk && !fresh(target_time_, target_timeout_)) {
       disarm("policy targets timed out");
     }
@@ -474,6 +537,8 @@ private:
   std::string disarm_event_;
   std::string walk_event_;
   Mode mode_{Mode::kDisarmed};
+  bool manage_gains_{false};
+  int gain_refresh_ticks_{0};
   tb::ObservationLayout layout_;
   double gait_period_{};
   tb::Quaternion imu_to_base_{1.0, 0.0, 0.0, 0.0};

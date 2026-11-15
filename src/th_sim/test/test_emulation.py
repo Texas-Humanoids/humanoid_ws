@@ -76,3 +76,12 @@ def test_rotated_mount_round_trips_through_the_bridge(world_frame):
     g = quat_rotate(rotation, projected_gravity(orientation, world_frame == 'ned'))
     assert g == pytest.approx(projected_gravity(q_base))
     assert quat_rotate(rotation, gyro) == pytest.approx(gyro_base)
+
+
+def test_gain_change_takes_effect_on_the_next_step():
+    m = MitMotors([1.0], [0.0], [30.0], [1.5], 1.0, [36.0])
+    m.command(0, 0.1, now=0.0)
+    assert m.joint_torque([0.0], [0.0], now=0.01)[0] == pytest.approx(3.0)  # 30 * 0.1
+    assert m.set_gains(0, 80.0, 3.0)
+    assert m.joint_torque([0.0], [0.0], now=0.02)[0] == pytest.approx(8.0)  # 80 * 0.1
+    assert not m.set_gains(0, float('nan'), 1.0)

@@ -16,6 +16,8 @@
 # mit: motors run PD with the policy_spec kp/kd (what training assumed).
 # csp: position mode with a 1 rad/s speed limit; bench only, the policy will not walk.
 control_mode: mit
+# Optional per motor: stand_kp / stand_kd, gains held during STAND instead of the policy's
+# trained gains (see the ankles below).
 # Damping (kp = 0) used whenever targets stop: before STAND, after BACK, after a fall.
 damping_kd: 1.0
 # Motor command/feedback exchange rate when no policy target arrives.
@@ -77,6 +79,10 @@ motors:
     offset: null
     lower: -1.5708
     upper: 1.5708
+    # STAND only: the trained ankle kp 30 cannot hold the robot's weight on PD alone
+    # (needs ~80). The policy runs with its trained 30/1.5 once A is pressed.
+    stand_kp: 80.0
+    stand_kd: 3.0
   - joint: right_hip_pitch_joint
     motor_id: null
     motor_model: RS03
@@ -117,3 +123,7 @@ motors:
     offset: null
     lower: -1.5708
     upper: 1.5708
+    # STAND only: the trained ankle kp 30 cannot hold the robot's weight on PD alone
+    # (needs ~80). The policy runs with its trained 30/1.5 once A is pressed.
+    stand_kp: 80.0
+    stand_kd: 3.0
