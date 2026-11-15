@@ -165,14 +165,14 @@ example after the container is killed), it stops and ignores targets until
 
 Files: [config/walker_v2_robot.yaml](config/walker_v2_robot.yaml) (motor IDs,
 calibration, IMU mounting, control mode) and the training export
-`policy_spec.json` (see [the example](config/walker_v2_policy_spec.example.json)).
-Put the exported `policy.onnx` and `policy_spec.json` in `policies/walker_v2/`.
+`policy_spec.json`. Each deployed policy lives in its own folder under
+`policies/walker_v2/`; the current one is [v6](../../policies/walker_v2/v6/README.md).
 
 ```bash
 ros2 launch th_bringup robot.launch.py \
   motors_config:=src/th_bringup/config/walker_v2_robot.yaml \
-  policy_spec:=policies/walker_v2/policy_spec.json \
-  model_path:=policies/walker_v2/policy.onnx \
+  policy_spec:=policies/walker_v2/v6/policy_spec.json \
+  model_path:=policies/walker_v2/v6/policy.onnx \
   walk_event:='A pressed' record:=true
 ```
 
@@ -229,10 +229,18 @@ Observation normalization must be baked into the ONNX.
    Then `ros2 topic echo /policy_bridge/projected_gravity`: upright reads
    about (0, 0, -1), tipping the robot nose-down gives +x, and tipping it left
    side down gives +y. If not, fix `imu.rotation` for how the sensor is mounted.
-5. **Stand.** Lower the robot until its feet touch, press START, check that it
-   holds the pose, then BACK.
-6. **Walk.** With the gantry slack but catching, press START, wait for the
-   ramp, press A with the stick centered, then hold LB and push forward gently.
+5. **Stand pose.** With the robot hanging (feet just off the ground), press
+   START. The legs ramp to the default pose and hold it. Then BACK.
+   **STAND does not hold the robot up.** v6 is trained with ankle kp 30, and on
+   PD alone the robot cannot carry its weight (it falls in about 2 s in both
+   simulators; it would need kp ≥ 80). Only the running policy balances it.
+   Never take the gantry's load off in STAND or after a disarm.
+6. **Walk.** Hanging, press START and wait for the ramp. Lower until the feet
+   carry weight but the gantry still holds. Press A with the stick centered:
+   the policy now balances actively (at zero command v6 stands with a 6-8°
+   forward lean and a small in-place rhythm). Slacken the gantry so it only
+   catches, then hold LB and push the left stick forward gently. BACK or a
+   fall disarms, and the robot sinks onto the gantry.
 
 ### Simulated robot (`sim:=true`)
 
@@ -266,10 +274,10 @@ python3 -m pip install --break-system-packages -r src/th_sim/requirements.txt
 colcon build --packages-up-to th_bringup th_sim && source install/setup.bash
 ros2 launch th_bringup robot.launch.py sim:=true \
   motors_config:=src/th_bringup/config/walker_v2_robot.yaml \
-  policy_spec:=policies/walker_v2/policy_spec.json \
-  model_path:=policies/walker_v2/policy.onnx walk_event:='A pressed'
+  policy_spec:=policies/walker_v2/v6/policy_spec.json \
+  model_path:=policies/walker_v2/v6/policy.onnx walk_event:='A pressed'
 # second shell: presses START, then A, checks rates and that the robot stays up
-python3 tools/walker/sim_check.py policies/walker_v2/policy_spec.json --vx 0.3
+python3 tools/walker/sim_check.py policies/walker_v2/v6/policy_spec.json --vx 0.3
 ```
 
 Without a controller, publish the buttons yourself:
