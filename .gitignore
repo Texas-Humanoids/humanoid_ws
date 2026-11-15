@@ -31,3 +31,6 @@ firmware/**/build/
 *.map
 
 captured_images/
+
+# actuator sysid runs (tools/walker/sysid/chirp.py)
+sysid_logs/

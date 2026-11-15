@@ -13,5 +13,8 @@ offsets, bringing up CAN interfaces.
   `sim_check.py` drives the MuJoCo sim (`sim:=true`) through STAND and WALK
   and checks rates and that the robot stays up; `sim_viewer.py` shows a sim
   streamed out of Docker on the Mac.
+- `walker/sysid/`: actuator system ID. `chirp.py` runs chirp, friction, step and top-speed
+  tests on one motor (Jetson), and `fit.py` fits inertia, friction, delay and top speed for
+  training. See its README.
 - `walker/bench/`: scripts and config from the Jetson two-motor bench (MIT checks, hold
   test, pipeline and policy monitors). See its README.
