@@ -158,6 +158,51 @@ TEST(PositionClamp, ExactlyAtBoundaryUnchanged)
   EXPECT_DOUBLE_EQ(clamp_position(max, -max, max), max);
 }
 
+// --- MIT (operation control) frames -------------------------------------------
+
+TEST(MotionCommand, EncodesIdAndBigEndianFields)
+{
+  const MotionRanges rs03{4.0 * M_PI, 20.0, 60.0, 5000.0, 100.0};
+  const auto [id, data] = encode_motion_command(7, {0.0, 0.0, 5000.0, 0.0, 0.0}, rs03);
+  EXPECT_EQ(id & 0xFF, 7u);
+  EXPECT_EQ((id >> 24) & 0x1F, kCommTypeMotionControl);
+  EXPECT_EQ((id >> 8) & 0xFFFF, 32768u);  // zero torque is mid-range
+  EXPECT_EQ(data[0], 0x80);  // position 0 -> 32768
+  EXPECT_EQ(data[1], 0x00);
+  EXPECT_EQ(data[4], 0xFF);  // kp at max -> 65535
+  EXPECT_EQ(data[5], 0xFF);
+  EXPECT_EQ(data[6], 0x00);  // kd 0
+  EXPECT_EQ(data[7], 0x00);
+}
+
+TEST(MotionCommand, GainsScaleWithModelRange)
+{
+  const MotionRanges rs02{4.0 * M_PI, 44.0, 17.0, 500.0, 5.0};
+  const auto [id, data] = encode_motion_command(1, {0.0, 0.0, 250.0, 2.5, 0.0}, rs02);
+  (void)id;
+  EXPECT_EQ((data[4] << 8) | data[5], 32768);
+  EXPECT_EQ((data[6] << 8) | data[7], 32768);
+}
+
+TEST(MotionCommand, SaturatesOutOfRange)
+{
+  const MotionRanges rs06{4.0 * M_PI, 50.0, 36.0, 5000.0, 100.0};
+  const auto [id, data] = encode_motion_command(1, {100.0, -100.0, -5.0, 1e6, 0.0}, rs06);
+  (void)id;
+  EXPECT_EQ((data[0] << 8) | data[1], 65535);
+  EXPECT_EQ((data[2] << 8) | data[3], 0);
+  EXPECT_EQ((data[4] << 8) | data[5], 0);
+  EXPECT_EQ((data[6] << 8) | data[7], 65535);
+}
+
+TEST(MotionCommand, PositionRoundTripsThroughStatusDecoder)
+{
+  const MotionRanges r{4.0 * M_PI, 50.0, 36.0, 5000.0, 100.0};
+  const auto [id, data] = encode_motion_command(1, {1.234, 0.0, 0.0, 0.0, 0.0}, r);
+  (void)id;
+  EXPECT_NEAR(decode_u16_range(data[0], data[1], r.position_max), 1.234, 1e-3);
+}
+
 int main(int argc, char ** argv)
 {
   testing::InitGoogleTest(&argc, argv);

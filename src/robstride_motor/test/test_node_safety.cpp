@@ -35,6 +35,7 @@ int socket_count = 0;
 float starting_position = 0.25f;
 uint8_t motor_id = 1;
 std::vector<can_frame> queued_frames;  // returned by read_frame before the reply
+std::vector<can_frame> mit_replies;  // one moves to queued_frames per MIT command written
 
 int open_socket(int, int, int)
 {
@@ -61,7 +62,25 @@ ssize_t write_frame(int, const void * data, size_t size)
   if (write_count == fail_write) {
     return -1;
   }
-  sent_frames.push_back(*static_cast<const can_frame *>(data));
+  const auto & frame = *static_cast<const can_frame *>(data);
+  sent_frames.push_back(frame);
+  if (((frame.can_id >> 24) & 0x1F) == robstride_motor::kCommTypeMotionControl &&
+    !mit_replies.empty())
+  {
+    queued_frames.push_back(mit_replies.front());
+    mit_replies.erase(mit_replies.begin());
+  }
+  return static_cast<ssize_t>(size);
+}
+
+// Non-blocking reads see only frames already waiting.
+ssize_t recv_frame(int, void * data, size_t size, int)
+{
+  if (queued_frames.empty()) {
+    return -1;
+  }
+  std::memcpy(data, &queued_frames.front(), sizeof(can_frame));
+  queued_frames.erase(queued_frames.begin());
   return static_cast<ssize_t>(size);
 }
 
@@ -93,9 +112,13 @@ ssize_t read_frame(int, void * data, size_t size)
 #define close test_can::close_socket
 #define write test_can::write_frame
 #define read test_can::read_frame
+#define recv test_can::recv_frame
+#define private public  // lets tests inspect the decoded status
 #define main robstride_motor_program_main
 #include "../src/robstride_motor_node.cpp"
 #undef main
+#undef private
+#undef recv
 #undef read
 #undef write
 #undef close
@@ -133,6 +156,7 @@ protected:
     test_can::starting_position = 0.25f;
     test_can::motor_id = 1;
     test_can::queued_frames.clear();
+    test_can::mit_replies.clear();
   }
 
   rclcpp::NodeOptions options(int64_t id = 1)
@@ -327,4 +351,30 @@ TEST_F(NodeSafety, ExplicitStopAndDestructorAreIdempotent)
   }
   EXPECT_EQ(count_frames(robstride_motor::kCommTypeStop), 2);
   EXPECT_EQ(test_can::close_count, 1);
+}
+
+TEST_F(NodeSafety, MitExchangeReadsItsOwnReplyNotAnEarlierLateOne)
+{
+  const auto status = [](double position) {
+      can_frame f{};
+      f.can_id = CAN_EFF_FLAG | (static_cast<uint32_t>(robstride_motor::kCommTypeStatus) << 24) |
+        (static_cast<uint32_t>(robstride_motor::kModeRunning) << 22) | (1u << 8) | 0xFE;
+      f.can_dlc = 8;
+      const auto raw =
+        static_cast<uint16_t>(std::lround((position / (4.0 * M_PI) + 1.0) * 32767.0));
+      f.data[0] = raw >> 8;
+      f.data[1] = raw & 0xFF;
+      return f;
+    };
+  // A reply that arrived after the previous exchange gave up, then this command's reply.
+  test_can::queued_frames = {status(1.0)};
+  test_can::mit_replies = {status(0.5)};
+  auto mit = options();
+  mit.append_parameter_override("control_mode", "mit");
+  mit.append_parameter_override("kp", 20.0);
+  mit.append_parameter_override("kd", 1.0);
+  RobstrideMotorNode node(mit);
+  EXPECT_NEAR(node.status_.position, 0.5, 1e-3);
+  EXPECT_NEAR(node.target_position_, 0.5, 1e-3);
+  EXPECT_TRUE(test_can::queued_frames.empty());
 }
