@@ -224,9 +224,11 @@ Observation normalization must be baked into the ONNX.
    It steps one joint at a time by +0.1 rad and says how the foot should move.
    Flip `direction` for any joint that moves the wrong way, then repeat step 2.
    The CSV is the step response to compare against sim (armature, gains).
-4. **IMU.** `ros2 topic echo /policy_bridge/projected_gravity`: upright reads
+4. **IMU.** The launch starts [vectornav_imu](../th_sensors/vectornav_imu/README.md)
+   because `imu.driver: vectornav` is set; check that it logs `Frame check passed`.
+   Then `ros2 topic echo /policy_bridge/projected_gravity`: upright reads
    about (0, 0, -1), tipping the robot nose-down gives +x, and tipping it left
-   side down gives +y. If not, fix `imu.rotation` / `imu.world_frame`.
+   side down gives +y. If not, fix `imu.rotation` for how the sensor is mounted.
 5. **Stand.** Lower the robot until its feet touch, press START, check that it
    holds the pose, then BACK.
 6. **Walk.** With the gantry slack but catching, press START, wait for the
