@@ -18,6 +18,7 @@
 #include "std_msgs/msg/float64_multi_array.hpp"
 #include "std_msgs/msg/float64.hpp"
 #include "std_msgs/msg/string.hpp"
+#include "th_policy_bridge/heading_hold.hpp"
 #include "th_policy_bridge/joint_mapping.hpp"
 #include "th_policy_bridge/observation.hpp"
 
@@ -86,6 +87,10 @@ public:
     max_tilt_ = declare_parameter<double>("max_tilt", 1.0);
     walk_event_ = declare_parameter<std::string>("walk_event", "");
     stand_ramp_time_ = declare_parameter<double>("stand_ramp_time", 2.0);
+    // Heading hold while walking without turning (see heading_hold.hpp); gain 0 disables it.
+    heading_hold_ = tb::HeadingHold(
+      declare_parameter<double>("heading_hold_gain", 0.0),
+      declare_parameter<double>("heading_hold_max_rate", 0.3));
     if (imu_rotation.size() != 4 || (imu_world_frame != "enu" && imu_world_frame != "ned") ||
       !(gait_period_ >= 0.0) || !(stand_ramp_time_ > 0.0) || !(max_tilt_ >= 0.0))
     {
@@ -243,6 +248,13 @@ public:
       arm_event_.c_str(), walk_event_.empty() ? "arms" : "stands", disarm_event_.c_str());
     if (!walk_event_.empty()) {
       RCLCPP_INFO(get_logger(), "'%s' starts walking once standing.", walk_event_.c_str());
+    }
+    if (heading_hold_.enabled()) {
+      if (!require_imu_) {
+        RCLCPP_WARN(get_logger(), "heading hold needs the IMU; it is off with require_imu false");
+      } else {
+        RCLCPP_INFO(get_logger(), "Heading hold on while walking without turning");
+      }
     }
   }
 
@@ -432,6 +444,8 @@ private:
   void start_walking()
   {
     walk_time_ = SteadyClock::now();
+    heading_hold_.reset();
+    last_hold_time_ = walk_time_;
     set_mode(Mode::kWalk);
     RCLCPP_WARN(get_logger(), "WALK: forwarding policy targets to %zu motors", motors_.size());
   }
@@ -487,6 +501,13 @@ private:
     tb::ObservationInputs in;
     // The gamepad only publishes while input changes or is held, so a stale command means stop.
     in.command = fresh(command_time_, cmd_vel_timeout_) ? command_ : std::array<double, 3>{};
+    if (mode_ == Mode::kWalk && require_imu_ && heading_hold_.enabled()) {
+      const auto now = SteadyClock::now();
+      in.command = heading_hold_.update(
+        in.command, gravity_, angular_velocity_,
+        std::chrono::duration<double>(now - last_hold_time_).count());
+      last_hold_time_ = now;
+    }
     in.angular_velocity = require_imu_ ? angular_velocity_ : std::array<double, 3>{};
     in.gravity = require_imu_ ? gravity_ : std::array<double, 3>{0.0, 0.0, -1.0};
     in.joint_positions = defaults_;
@@ -548,6 +569,8 @@ private:
   std::vector<double> ramp_start_;
   SteadyClock::time_point ramp_time_{};
   SteadyClock::time_point walk_time_{};
+  tb::HeadingHold heading_hold_{0.0, 0.3};
+  SteadyClock::time_point last_hold_time_{};
 
   std::array<double, 3> command_{};
   SteadyClock::time_point command_time_{};

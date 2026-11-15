@@ -5,6 +5,7 @@
 #include <stdexcept>
 #include <vector>
 
+#include "th_policy_bridge/heading_hold.hpp"
 #include "th_policy_bridge/joint_mapping.hpp"
 #include "th_policy_bridge/observation.hpp"
 
@@ -195,4 +196,81 @@ TEST(Interpolate, ClampsAlpha)
   EXPECT_DOUBLE_EQ(mid[0], 0.5);
   EXPECT_DOUBLE_EQ(mid[1], 2.0);
   EXPECT_DOUBLE_EQ(tb::interpolate({0.0}, {1.0}, 7.0)[0], 1.0);
+}
+
+namespace
+{
+const std::array<double, 3> kUpright{0.0, 0.0, -1.0};
+const std::array<double, 3> kStill{0.0, 0.0, 0.0};
+}  // namespace
+
+TEST(HeadingHold, DisabledPassesCommandThrough)
+{
+  tb::HeadingHold hold(0.0, 0.3);
+  const auto out = hold.update({0.3, 0.0, 0.0}, kUpright, {0.0, 0.0, 0.5}, 1.0);
+  EXPECT_EQ(out, (std::array<double, 3>{0.3, 0.0, 0.0}));
+}
+
+TEST(HeadingHold, CorrectsYawDriftWhileWalkingStraight)
+{
+  tb::HeadingHold hold(1.5, 0.3);
+  hold.update({0.3, 0.0, 0.0}, kUpright, kStill, 0.02);  // reference = 0
+  // The robot yaws left (+z) by 0.1 rad: the correction turns it right.
+  const auto out = hold.update({0.3, 0.0, 0.0}, kUpright, {0.0, 0.0, 0.1 / 0.02}, 0.02);
+  EXPECT_NEAR(hold.heading(), 0.1, 1e-12);
+  EXPECT_DOUBLE_EQ(out[0], 0.3);
+  EXPECT_NEAR(out[2], -0.15, 1e-12);
+}
+
+TEST(HeadingHold, CorrectionIsClamped)
+{
+  tb::HeadingHold hold(1.5, 0.3);
+  const auto out = hold.update({-0.2, 0.0, 0.0}, kUpright, {0.0, 0.0, -10.0}, 0.1);  // -1 rad
+  EXPECT_DOUBLE_EQ(out[2], 0.3);
+}
+
+TEST(HeadingHold, TurningAndStandingPassThroughAndMoveTheReference)
+{
+  tb::HeadingHold hold(1.5, 0.3);
+  // Operator turns while walking: command passes through, reference follows the heading.
+  auto out = hold.update({0.3, 0.0, 0.4}, kUpright, {0.0, 0.0, 4.0}, 0.1);
+  EXPECT_DOUBLE_EQ(out[2], 0.4);
+  EXPECT_NEAR(hold.reference(), 0.4, 1e-12);
+  // Standing: no correction, even though the robot rotated.
+  out = hold.update({0.0, 0.0, 0.0}, kUpright, {0.0, 0.0, 2.0}, 0.1);
+  EXPECT_DOUBLE_EQ(out[2], 0.0);
+  EXPECT_NEAR(hold.reference(), 0.6, 1e-12);
+  // Walking again holds the heading it had when it started walking.
+  out = hold.update({0.3, 0.0, 0.0}, kUpright, kStill, 0.02);
+  EXPECT_NEAR(out[2], 0.0, 1e-12);
+}
+
+TEST(HeadingHold, UsesYawAboutWorldVerticalWhenTilted)
+{
+  tb::HeadingHold hold(1.0, 10.0);
+  // Base pitched 90 deg nose down: world up is base -x, so a base -x rotation is a left turn.
+  const auto out = hold.update({0.3, 0.0, 0.0}, {1.0, 0.0, 0.0}, {-2.0, 0.0, 0.0}, 0.1);
+  EXPECT_NEAR(hold.heading(), 0.2, 1e-12);
+  EXPECT_NEAR(out[2], -0.2, 1e-12);  // turns back toward the start heading (0)
+}
+
+TEST(HeadingHold, WrapsAroundPi)
+{
+  tb::HeadingHold hold(1.0, 10.0);
+  hold.update({0.0, 0.0, 0.0}, kUpright, {0.0, 0.0, 31.0}, 0.1);  // stand, turned to 3.1 rad
+  const auto out = hold.update({0.3, 0.0, 0.0}, kUpright, {0.0, 0.0, 1.0}, 0.1);  // 3.2 -> -3.08
+  EXPECT_NEAR(out[2], -0.1, 1e-9);  // short way back, not 2*pi the other way
+}
+
+TEST(HeadingHold, StallDoesNotStretchOneGyroSample)
+{
+  tb::HeadingHold hold(1.5, 0.3);
+  hold.update({0.3, 0.0, 0.0}, kUpright, {0.0, 0.0, 0.5}, 0.7);  // 0.7 s late tick
+  EXPECT_NEAR(hold.heading(), 0.05, 1e-12);  // integrated over 0.1 s, not 0.7 s
+}
+
+TEST(HeadingHold, RejectsBadParameters)
+{
+  EXPECT_THROW(tb::HeadingHold(-1.0, 0.3), std::invalid_argument);
+  EXPECT_THROW(tb::HeadingHold(1.0, std::numeric_limits<double>::quiet_NaN()), std::invalid_argument);
 }

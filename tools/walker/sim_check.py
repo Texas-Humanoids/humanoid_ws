@@ -19,6 +19,7 @@ and the simulated base height. Exits non-zero if a check fails.
 
 import argparse
 import json
+import math
 import sys
 import time
 
@@ -80,6 +81,7 @@ def main():
     cmd_vel = node.create_publisher(Twist, '/cmd_vel', 10)
     failures = []
     heights = []
+    walk_poses = []  # (x, y, yaw) of the base while walking
 
     def spin_for(seconds, vx=0.0):
         end = time.monotonic() + seconds
@@ -93,6 +95,9 @@ def main():
                 next_cmd = time.monotonic() + 0.05
             if pose.last is not None:
                 heights.append(pose.last.pose.position.z)
+                p, q = pose.last.pose.position, pose.last.pose.orientation
+                yaw = math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z))
+                walk_poses.append((p.x, p.y, yaw))
 
     def press(button):
         buttons.publish(String(data=button + ' pressed'))
@@ -134,6 +139,7 @@ def main():
     press('A')
     t = time.monotonic()
     heights.clear()
+    walk_poses.clear()
     spin_for(args.walk, args.vx)
     report('WALK', t)
     if current_mode() != 'WALK':
@@ -148,6 +154,13 @@ def main():
         p = pose.last.pose.position
         print(f'Base moved to x {p.x:+.2f} y {p.y:+.2f} m; min height while walking '
               f'{min(heights) if heights else float("nan"):.3f} m')
+    if len(walk_poses) > 1:
+        (x0, y0, yaw0), (x1, y1, yaw1) = walk_poses[0], walk_poses[-1]
+        turn = math.degrees(math.atan2(math.sin(yaw1 - yaw0), math.cos(yaw1 - yaw0)))
+        # displacement in the frame the robot started walking in
+        fwd = math.cos(yaw0) * (x1 - x0) + math.sin(yaw0) * (y1 - y0)
+        side = -math.sin(yaw0) * (x1 - x0) + math.cos(yaw0) * (y1 - y0)
+        print(f'While walking: {fwd:+.2f} m forward, {side:+.2f} m sideways, heading change {turn:+.1f} deg')
 
     press('BACK')
     node.destroy_node()
