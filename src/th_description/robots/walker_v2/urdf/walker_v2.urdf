@@ -1,0 +1,112 @@
+<?xml version="1.0"?>
+<!-- WalkerV2 cleaned for RL. Generated from Onshape export pkg_001 by build_clean.py. See README.md. -->
+<robot name="walker_v2">
+  <link name="base_link">
+    <inertial><origin xyz="-0.000254284 -0.00131221 0.116782" rpy="0 0 0"/><mass value="6.64833"/><inertia ixx="1.000096e-01" ixy="2.200024e-06" ixz="2.176256e-04" iyy="7.846314e-02" iyz="1.468192e-03" izz="3.341249e-02"/></inertial>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="package://walker_v2/meshes/base_link.stl"/></geometry><material name="grey"><color rgba="0.25 0.25 0.27 1"/></material></visual>
+    <collision name="base_link_box"><origin xyz="0 0 0.132462" rpy="0 0 0"/><geometry><box size="0.123 0.28885 0.404925"/></geometry></collision>
+  </link>
+  <link name="left_hip_pitch_link">
+    <inertial><origin xyz="0.00234997 0.0640914 3.6575e-08" rpy="0 0 0"/><mass value="1.01032"/><inertia ixx="1.353170e-03" ixy="-8.254336e-06" ixz="1.993845e-09" iyy="1.018679e-03" iyz="-4.847400e-11" izz="1.161561e-03"/></inertial>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="package://walker_v2/meshes/left_hip_pitch_link.stl"/></geometry><material name="grey"><color rgba="0.25 0.25 0.27 1"/></material></visual>
+    <collision name="left_hip_pitch_link_box"><origin xyz="-0.0143879 0.061 2.5034e-08" rpy="0 0 0"/><geometry><box size="0.0974482 0.1098 0.100713"/></geometry></collision>
+  </link>
+  <link name="left_hip_roll_link">
+    <inertial><origin xyz="-0.0149578 0 -0.0753702" rpy="0 0 0"/><mass value="0.37393"/><inertia ixx="1.254626e-03" ixy="1.100103e-18" ixz="6.205677e-06" iyy="1.538542e-03" iyz="3.427392e-18" izz="5.075579e-04"/></inertial>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="package://walker_v2/meshes/left_hip_roll_link.stl"/></geometry><material name="grey"><color rgba="0.25 0.25 0.27 1"/></material></visual>
+    <collision name="left_hip_roll_link_box"><origin xyz="-0.01475 0 -0.0472764" rpy="0 0 0"/><geometry><box size="0.09675 0.072 0.150702"/></geometry></collision>
+  </link>
+  <link name="left_thigh_link">
+    <inertial><origin xyz="0 0.000151489 -0.0694313" rpy="0 0 0"/><mass value="0.65570"/><inertia ixx="3.082813e-03" ixy="-6.186898e-18" ixz="3.275956e-17" iyy="2.796305e-03" iyz="1.125417e-05" izz="7.313655e-04"/></inertial>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="package://walker_v2/meshes/left_thigh_link.stl"/></geometry><material name="grey"><color rgba="0.25 0.25 0.27 1"/></material></visual>
+    <collision name="left_thigh_link_box"><origin xyz="0 3.27826e-09 -0.112724" rpy="0 0 0"/><geometry><box size="0.074143 0.09675 0.202903"/></geometry></collision>
+  </link>
+  <link name="left_shank_link">
+    <inertial><origin xyz="9.28138e-05 0.0126149 -0.108076" rpy="0 0 0"/><mass value="1.82484"/><inertia ixx="2.880275e-02" ixy="1.675641e-06" ixz="-5.179925e-05" iyy="2.903566e-02" iyz="2.482840e-05" izz="1.608627e-03"/></inertial>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="package://walker_v2/meshes/left_shank_link.stl"/></geometry><material name="grey"><color rgba="0.25 0.25 0.27 1"/></material></visual>
+    <collision name="left_shank_link_box"><origin xyz="0 0.0292444 -0.125965" rpy="0 0 0"/><geometry><box size="0.100713 0.0976405 0.327537"/></geometry></collision>
+  </link>
+  <link name="left_foot_link">
+    <inertial><origin xyz="0 0.0127672 -0.0437668" rpy="0 0 0"/><mass value="0.22833"/><inertia ixx="5.629790e-04" ixy="1.604905e-20" ixz="3.677936e-20" iyy="5.188805e-04" iyz="-1.686063e-05" izz="4.561491e-04"/></inertial>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="package://walker_v2/meshes/left_foot_link.stl"/></geometry><material name="grey"><color rgba="0.25 0.25 0.27 1"/></material></visual>
+    <collision name="left_foot_link_sole"><origin xyz="0 0.0110797 -0.0805" rpy="0 0 0"/><geometry><box size="0.15 0.102159 0.02"/></geometry></collision>
+  </link>
+  <link name="right_hip_pitch_link">
+    <inertial><origin xyz="0.00234995 -0.0640914 1.70161e-08" rpy="0 0 0"/><mass value="1.01032"/><inertia ixx="1.353170e-03" ixy="8.254300e-06" ixz="1.929757e-09" iyy="1.018681e-03" iyz="1.226631e-11" izz="1.161563e-03"/></inertial>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="package://walker_v2/meshes/right_hip_pitch_link.stl"/></geometry><material name="grey"><color rgba="0.25 0.25 0.27 1"/></material></visual>
+    <collision name="right_hip_pitch_link_box"><origin xyz="-0.0143875 -0.061 5.49982e-09" rpy="0 0 0"/><geometry><box size="0.0974475 0.1098 0.100713"/></geometry></collision>
+  </link>
+  <link name="right_hip_roll_link">
+    <inertial><origin xyz="-0.0149578 -6.59389e-09 -0.0753701" rpy="0 0 0"/><mass value="0.37393"/><inertia ixx="1.254626e-03" ixy="5.428867e-13" ixz="6.205453e-06" iyy="1.538542e-03" iyz="-9.019747e-11" izz="5.075579e-04"/></inertial>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="package://walker_v2/meshes/right_hip_roll_link.stl"/></geometry><material name="grey"><color rgba="0.25 0.25 0.27 1"/></material></visual>
+    <collision name="right_hip_roll_link_box"><origin xyz="-0.01475 -1.01061e-08 -0.0472764" rpy="0 0 0"/><geometry><box size="0.09675 0.072 0.150702"/></geometry></collision>
+  </link>
+  <link name="right_thigh_link">
+    <inertial><origin xyz="-3.05914e-08 -0.000151569 -0.0694313" rpy="0 0 0"/><mass value="0.65570"/><inertia ixx="3.082813e-03" ixy="-3.205565e-11" ixz="-7.180331e-10" iyy="2.796305e-03" iyz="-1.125444e-05" izz="7.313655e-04"/></inertial>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="package://walker_v2/meshes/right_thigh_link.stl"/></geometry><material name="grey"><color rgba="0.25 0.25 0.27 1"/></material></visual>
+    <collision name="right_thigh_link_box"><origin xyz="-2.57088e-08 -9.07411e-08 -0.112724" rpy="0 0 0"/><geometry><box size="0.074143 0.09675 0.202903"/></geometry></collision>
+  </link>
+  <link name="right_shank_link">
+    <inertial><origin xyz="9.27879e-05 -0.012615 -0.108077" rpy="0 0 0"/><mass value="1.82484"/><inertia ixx="2.880285e-02" ixy="-1.675593e-06" ixz="-5.180636e-05" iyy="2.903575e-02" iyz="-2.482936e-05" izz="1.608632e-03"/></inertial>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="package://walker_v2/meshes/right_shank_link.stl"/></geometry><material name="grey"><color rgba="0.25 0.25 0.27 1"/></material></visual>
+    <collision name="right_shank_link_box"><origin xyz="1.16389e-08 -0.029244 -0.125966" rpy="0 0 0"/><geometry><box size="0.100713 0.0976398 0.327537"/></geometry></collision>
+  </link>
+  <link name="right_foot_link">
+    <inertial><origin xyz="-1.45019e-07 -0.0127672 -0.0437669" rpy="0 0 0"/><mass value="0.22833"/><inertia ixx="5.629791e-04" ixy="5.882602e-11" ixz="-3.499667e-10" iyy="5.188806e-04" iyz="1.686059e-05" izz="4.561491e-04"/></inertial>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="package://walker_v2/meshes/right_foot_link.stl"/></geometry><material name="grey"><color rgba="0.25 0.25 0.27 1"/></material></visual>
+    <collision name="right_foot_link_sole"><origin xyz="-3.02585e-07 -0.0110797 -0.0805003" rpy="0 0 0"/><geometry><box size="0.15 0.102159 0.02"/></geometry></collision>
+  </link>
+  <joint name="left_hip_pitch_joint" type="revolute">
+    <origin xyz="0 0.079 0" rpy="0 0 0"/><parent link="base_link"/><child link="left_hip_pitch_link"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-0.7854" upper="0.7854" effort="60.0" velocity="20.42"/>  <!-- RS03 -->
+  </joint>
+  <joint name="left_hip_roll_joint" type="revolute">
+    <origin xyz="0.01475 0.066 0" rpy="0 0 0"/><parent link="left_hip_pitch_link"/><child link="left_hip_roll_link"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="-0.35" upper="0.7854" effort="60.0" velocity="20.42"/>  <!-- RS03 -->
+  </joint>
+  <joint name="left_hip_yaw_joint" type="revolute">
+    <origin xyz="-0.01475 0 -0.131" rpy="0 0 0"/><parent link="left_hip_roll_link"/><child link="left_thigh_link"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-0.7854" upper="0.7854" effort="17.0" velocity="42.94"/>  <!-- RS02 -->
+  </joint>
+  <joint name="left_knee_pitch_joint" type="revolute">
+    <origin xyz="0 -0.01475 -0.189" rpy="0 0 0"/><parent link="left_thigh_link"/><child link="left_shank_link"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="0.0" upper="2.0944" effort="60.0" velocity="20.42"/>  <!-- RS03 -->
+  </joint>
+  <joint name="left_ankle_pitch_joint" type="revolute">
+    <origin xyz="0 0.00367 -0.26" rpy="0 0 0"/><parent link="left_shank_link"/><child link="left_foot_link"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-1.5708" upper="1.5708" effort="36.0" velocity="50.27"/>  <!-- RS06 -->
+  </joint>
+  <joint name="right_hip_pitch_joint" type="revolute">
+    <origin xyz="0 -0.079 0" rpy="0 0 0"/><parent link="base_link"/><child link="right_hip_pitch_link"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-0.7854" upper="0.7854" effort="60.0" velocity="20.42"/>  <!-- RS03 -->
+  </joint>
+  <joint name="right_hip_roll_joint" type="revolute">
+    <origin xyz="0.01475 -0.066 -2.39591e-08" rpy="0 0 0"/><parent link="right_hip_pitch_link"/><child link="right_hip_roll_link"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="-0.7854" upper="0.35" effort="60.0" velocity="20.42"/>  <!-- RS03 -->
+  </joint>
+  <joint name="right_hip_yaw_joint" type="revolute">
+    <origin xyz="-0.01475 -1.14608e-08 -0.131" rpy="0 0 0"/><parent link="right_hip_roll_link"/><child link="right_thigh_link"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-0.7854" upper="0.7854" effort="17.0" velocity="42.94"/>  <!-- RS02 -->
+  </joint>
+  <joint name="right_knee_pitch_joint" type="revolute">
+    <origin xyz="-6.52588e-08 0.0147499 -0.189" rpy="0 0 0"/><parent link="right_thigh_link"/><child link="right_shank_link"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="0.0" upper="2.0944" effort="60.0" velocity="20.42"/>  <!-- RS03 -->
+  </joint>
+  <joint name="right_ankle_pitch_joint" type="revolute">
+    <origin xyz="-6.45558e-08 -0.00367002 -0.26" rpy="0 0 0"/><parent link="right_shank_link"/><child link="right_foot_link"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-1.5708" upper="1.5708" effort="36.0" velocity="50.27"/>  <!-- RS06 -->
+  </joint>
+  <!-- TODO: set to the real VectorNav mounting pose (position + orientation) relative to base_link -->
+  <link name="imu_link"/>
+  <joint name="imu_joint" type="fixed"><origin xyz="0 0 0" rpy="0 0 0"/><parent link="base_link"/><child link="imu_link"/></joint>
+</robot>
