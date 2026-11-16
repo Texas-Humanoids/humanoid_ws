@@ -14,14 +14,18 @@ Outputs:
   /robot/tilt_deg                std_msgs/Float64  base tilt from upright, degrees
   /robot/lean_forward_deg,       std_msgs/Float64  lean toward +x (nose down) and +y (left
   /robot/lean_left_deg                             side down), degrees
-  /robot/summary                 diagnostic_msgs/DiagnosticStatus  the readings above as
-                                 labeled text (key/value rows), for a table on the dashboard
+  /robot/current_left, _right,   std_msgs/Float64  estimated battery current (A) of each leg's
+  /robot/current_total           motors and in total (see telemetry.battery_current)
   The /robot/* numbers are rounded so the dashboard shows them as they are read.
+  /robot/health                  std_msgs/String  worst of the motors, IMU and battery: OK,
+                                 WARNING, FAULT or NO DATA
   /diagnostics                   diagnostic_msgs/DiagnosticArray  battery, bridge, IMU, motors
   /tf                            world -> base_link: the sim's ground-truth pose when running
                                  in MuJoCo, otherwise the IMU orientation at base_height
                                  (no position estimate on hardware); world -> base_footprint
-                                 (base_link on the floor, heading only) for the top-down views
+                                 (base_link on the floor, heading only); world -> base_smooth
+                                 (the same, low-passed, for a steady camera); world ->
+                                 dashboard (fixed, for the top-down views)
   /dashboard/command, /dashboard/lean   visualization_msgs/MarkerArray (see dashboard.py)
 """
 
@@ -37,7 +41,7 @@ from rclpy.parameter import Parameter
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
 from sensor_msgs.msg import BatteryState, Imu
 from std_msgs.msg import Float64, String
-from tf2_ros import TransformBroadcaster
+from tf2_ros import StaticTransformBroadcaster, TransformBroadcaster
 from visualization_msgs.msg import MarkerArray
 
 from th_foxglove import dashboard, telemetry
@@ -98,6 +102,10 @@ class RobotMonitor(Node):
         self.base_frame = p('base_frame', 'base_link').value
         self.footprint_frame = p('footprint_frame', 'base_footprint').value
         self.max_tilt_deg = math.degrees(float(p('max_tilt', 1.0).value))
+        self.efficiency = float(p('drive_efficiency', 0.85).value)
+        self.base_current = float(p('battery_base_current', 0.0).value)
+        # Voltage for the current estimate when the motors report none (sim): nominal 3.6 V/cell.
+        self.nominal_voltage = 3.6 * self.cells if self.cells > 0 else 36.0
 
         self.motors = [Motor(j, ns) for j, ns in zip(joints, namespaces)]
         for motor in self.motors:
@@ -118,7 +126,8 @@ class RobotMonitor(Node):
         self.create_subscription(
             Twist, p('cmd_vel_topic', '/cmd_vel').value,
             lambda msg: self.command.set((msg.linear.x, msg.linear.y, msg.angular.z)), 10)
-        self.velocity = dashboard.VelocityEstimate()
+        self.velocity = dashboard.VelocityEstimate(float(p('velocity_window', 1.4).value))
+        self.smooth = dashboard.SmoothedPose(float(p('camera_smoothing', 0.8).value))
         self.measured_velocity = None
         self.lean_trail = []
         self.create_subscription(
@@ -140,9 +149,22 @@ class RobotMonitor(Node):
         self.percent_pub = self.create_publisher(Float64, '/robot/battery_percent', 10)
         self.lean_forward_pub = self.create_publisher(Float64, '/robot/lean_forward_deg', 10)
         self.lean_left_pub = self.create_publisher(Float64, '/robot/lean_left_deg', 10)
-        self.summary_pub = self.create_publisher(DiagnosticStatus, '/robot/summary', 10)
+        self.current_pubs = {
+            side: self.create_publisher(Float64, f'/robot/current_{side}', 10)
+            for side in ('left', 'right', 'total')}
+        self.health_pub = self.create_publisher(String, '/robot/health', 10)
         self.diagnostics_pub = self.create_publisher(DiagnosticArray, '/diagnostics', 10)
         self.tf = TransformBroadcaster(self)
+        # A fixed frame for the top-down views, well below the floor so it stays out of the
+        # robot view. They follow it, so nothing in them moves with the robot's steps.
+        self.static_tf = StaticTransformBroadcaster(self)
+        d = TransformStamped()
+        d.header.stamp = self.get_clock().now().to_msg()
+        d.header.frame_id = self.world_frame
+        d.child_frame_id = 'dashboard'
+        d.transform.translation.z = -20.0
+        d.transform.rotation.w = 1.0
+        self.static_tf.sendTransform(d)
         self.command_markers_pub = self.create_publisher(MarkerArray, '/dashboard/command', 10)
         self.lean_markers_pub = self.create_publisher(MarkerArray, '/dashboard/lean', 10)
         self.create_timer(0.05, self.publish_views)
@@ -194,7 +216,14 @@ class RobotMonitor(Node):
         f.child_frame_id = self.footprint_frame
         f.transform.translation.x, f.transform.translation.y = position[0], position[1]
         f.transform.rotation.w, f.transform.rotation.z = math.cos(yaw / 2), math.sin(yaw / 2)
-        self.tf.sendTransform([t, f])
+        sx, sy, syaw = self.smooth.update(time.monotonic(), position[0], position[1], yaw)
+        c = TransformStamped()
+        c.header.stamp = stamp
+        c.header.frame_id = self.world_frame
+        c.child_frame_id = 'base_smooth'
+        c.transform.translation.x, c.transform.translation.y = sx, sy
+        c.transform.rotation.w, c.transform.rotation.z = math.cos(syaw / 2), math.sin(syaw / 2)
+        self.tf.sendTransform([t, f, c])
         if source == 'sim':
             self.measured_velocity = self.velocity.update(
                 time.monotonic(), position[0], position[1], yaw)
@@ -207,7 +236,7 @@ class RobotMonitor(Node):
         stamp = self.get_clock().now().to_msg()
         command = self.command.get(0.5, (0.0, 0.0, 0.0))  # the bridge treats stale as stop
         self.command_markers_pub.publish(dashboard.command_markers(
-            self.footprint_frame, stamp, command, self.measured_velocity))
+            'dashboard', stamp, command, self.measured_velocity))
         _, q, source = self.base_pose()
         lean = telemetry.lean(q) if source != 'none' else None
         if lean is not None:
@@ -215,7 +244,7 @@ class RobotMonitor(Node):
         else:
             self.lean_trail = []
         self.lean_markers_pub.publish(dashboard.lean_markers(
-            self.footprint_frame, stamp, lean, self.lean_trail, self.max_tilt_deg))
+            'dashboard', stamp, lean, self.lean_trail, self.max_tilt_deg))
 
     # -- 10 Hz numbers ----------------------------------------------------------------------
 
@@ -233,7 +262,6 @@ class RobotMonitor(Node):
         battery.power_supply_technology = BatteryState.POWER_SUPPLY_TECHNOLOGY_LION
         battery.power_supply_status = BatteryState.POWER_SUPPLY_STATUS_DISCHARGING
         battery.present = math.isfinite(volts)
-        self.battery_pub.publish(battery)
         if math.isfinite(volts):
             self.voltage_pub.publish(Float64(data=round(volts, 1)))
         if math.isfinite(battery.percentage):
@@ -244,37 +272,28 @@ class RobotMonitor(Node):
         if any(t is not None for t in torques):
             self.power_pub.publish(
                 Float64(data=float(round(telemetry.mechanical_power(torques, velocities)))))
+            bus = volts if math.isfinite(volts) else self.nominal_voltage
+            amps = {}
+            for side in ('left', 'right'):
+                pick = [i for i, m in enumerate(self.motors) if m.joint.startswith(side + '_')]
+                amps[side] = telemetry.battery_current(
+                    [torques[i] for i in pick], [velocities[i] for i in pick], bus,
+                    self.efficiency)
+            amps['total'] = amps['left'] + amps['right'] + self.base_current
+            for side, value in amps.items():
+                self.current_pubs[side].publish(Float64(data=round(value, 1)))
+            battery.current = -float(amps['total'])  # ROS: negative while discharging
+        self.battery_pub.publish(battery)
         temperatures = [m.temperature.get(3.0) for m in self.motors]
         temperatures = [t for t in temperatures if t is not None]
         if temperatures:
             self.temperature_pub.publish(Float64(data=round(float(max(temperatures)), 1)))
         _, q, source = self.base_pose()
-        tilt = forward = left = None
         if source != 'none':
-            tilt = math.degrees(telemetry.tilt(q))
             forward, left = telemetry.lean(q)
-            self.tilt_pub.publish(Float64(data=round(tilt, 1)))
+            self.tilt_pub.publish(Float64(data=round(math.degrees(telemetry.tilt(q)), 1)))
             self.lean_forward_pub.publish(Float64(data=round(forward, 1)))
             self.lean_left_pub.publish(Float64(data=round(left, 1)))
-
-        dash = '-'
-        if math.isfinite(volts):
-            battery_text = f'{volts:.1f} V'
-            if math.isfinite(battery.percentage):
-                battery_text += f'  ({battery.percentage * 100:.0f}%)'
-        else:
-            battery_text = dash
-        power = (telemetry.mechanical_power(torques, velocities)
-                 if any(t is not None for t in torques) else None)
-        rows = {
-            'Battery': battery_text,
-            'Motor power': f'{power:.0f} W' if power is not None else dash,
-            'Tilt': f'{tilt:.1f} deg' if tilt is not None else dash,
-            'Lean fwd / left': (f'{forward:+.1f} / {left:+.1f} deg'
-                                if forward is not None else dash),
-            'Hottest motor': f'{max(temperatures):.0f} C' if temperatures else dash,
-        }
-        self.summary_pub.publish(status('robot: summary', OK, '', rows))
 
     # -- 1 Hz diagnostics -------------------------------------------------------------------
 
@@ -289,6 +308,7 @@ class RobotMonitor(Node):
         array.status = [self.battery_status(), self.bridge_status(), self.imu_status()]
         array.status += [self.motor_status(m) for m in self.motors]
         self.diagnostics_pub.publish(array)
+        self.health_pub.publish(String(data=health_summary(array.status)))
 
     def battery_status(self):
         volts = self.voltage()
@@ -335,6 +355,24 @@ class RobotMonitor(Node):
         if motor.velocity.fresh(0.5):  # th_sim, or a motor whose status frames stopped
             return status(name, OK, 'OK (no status frames)')
         return status(name, STALE, 'no feedback')
+
+
+def health_summary(statuses):
+    """One word for the dashboard light: the worst motor/IMU/battery level.
+
+    The policy bridge's row (DISARMED is a WARN) and a battery with no reading (the sim) are
+    left out: the state banner and the battery gauge already show those. Anything that
+    stopped reporting makes it at least WARNING.
+    """
+    levels = [level_of(s) for s in statuses
+              if s.name != 'robot: policy_bridge' and
+              not (s.name == 'robot: battery' and level_of(s) == STALE)]
+    if not levels or all(level == STALE for level in levels):
+        return 'NO DATA'
+    worst = max(level for level in levels if level != STALE)
+    if STALE in levels:
+        worst = max(worst, WARN)
+    return {OK: 'OK', WARN: 'WARNING', ERROR: 'FAULT'}[worst]
 
 
 def level_of(msg):

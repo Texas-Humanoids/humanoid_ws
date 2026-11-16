@@ -120,3 +120,41 @@ def test_dashboard_markers_build():
     lean = d.lean_markers('base_footprint', Time(), (80.0, 0.0), [(0, 0), (80.0, 0.0)], 57.3)
     dot = [m for m in lean.markers if m.type == Marker.SPHERE][-1]
     assert dot.pose.position.x == pytest.approx(57.3 * 1.1 * d.LEAN_SCALE)  # a fall stays on screen
+
+
+def test_measured_velocity_averages_out_step_sway():
+    from th_foxglove import dashboard as d
+    v = d.VelocityEstimate(window=1.4)
+    # 0.3 m/s forward plus a 0.1 m side-to-side sway every 0.7 s step cycle.
+    for i in range(200):
+        t = i * 0.02
+        out = v.update(t, 0.3 * t, 0.05 * math.sin(2 * math.pi * t / 0.7), 0.0)
+    assert out[0] == pytest.approx(0.3, abs=0.01)
+    assert abs(out[1]) < 0.02  # the sway (peak 0.45 m/s sideways) is gone
+
+
+def test_smoothed_pose_glides_and_wraps_heading():
+    from th_foxglove import dashboard as d
+    s = d.SmoothedPose(tau=0.8)
+    s.update(0.0, 0.0, 0.0, math.pi - 0.05)
+    x, _, yaw = s.update(0.02, 1.0, 0.0, -math.pi + 0.05)  # heading crosses +/-pi
+    assert 0.0 < x < 0.05  # a step jump moves the camera only a little
+    assert abs(abs(yaw) - math.pi) < 0.06  # went the short way round, not through 0
+
+
+def test_battery_current_estimate():
+    # 2 motors doing 36 W of work on a 36 V bus at 85% efficiency.
+    assert t.battery_current([6.0, -3.0], [3.0, -6.0], 36.0, 0.85) == pytest.approx(
+        36.0 / (36.0 * 0.85))
+    assert math.isnan(t.battery_current([1.0], [1.0], math.nan))
+
+
+def test_health_summary():
+    from th_foxglove.robot_monitor import ERROR, OK, STALE, WARN, health_summary, status
+    ok = [status('motor: a', OK, ''), status('robot: imu', OK, '')]
+    sim_battery = status('robot: battery', STALE, 'no voltage reading')
+    disarmed = status('robot: policy_bridge', WARN, 'DISARMED')
+    assert health_summary(ok + [sim_battery, disarmed]) == 'OK'
+    assert health_summary(ok + [status('motor: b', ERROR, 'overtemp')]) == 'FAULT'
+    assert health_summary(ok + [status('motor: b', STALE, 'no feedback')]) == 'WARNING'
+    assert health_summary([sim_battery]) == 'NO DATA'

@@ -45,6 +45,19 @@ def mechanical_power(torques, velocities):
                if t is not None and w is not None and math.isfinite(t * w))
 
 
+def battery_current(torques, velocities, volts, efficiency=0.85):
+    """Estimated battery current (A) for a group of motors: their power over the bus voltage.
+
+    The motors report torque and speed but not their input current, and RobStride does not
+    publish the winding resistance or torque constant needed for copper losses. So this is
+    sum(|torque * speed|) / (volts * efficiency): braking counts as draw too, which errs
+    high (the safe side for a current limit); holding torque at standstill reads as ~0.
+    """
+    if not math.isfinite(volts) or volts <= 0:
+        return math.nan
+    return mechanical_power(torques, velocities) / (volts * efficiency)
+
+
 def quat_multiply(a, b):
     aw, ax, ay, az = a
     bw, bx, by, bz = b

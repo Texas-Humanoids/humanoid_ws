@@ -63,6 +63,7 @@ def launch_dashboard(context):
     monitor = {
         'battery_cells': int(battery.get('cells') or 0),
         'battery_low_cell_voltage': float(battery.get('low_cell_voltage', 3.3)),
+        'battery_base_current': float(battery.get('base_current', 0.0)),
         'imu_rotation': [float(v) for v in imu.get('rotation', [1.0, 0.0, 0.0, 0.0])],
         'imu_world_frame': imu.get('world_frame', 'enu'),
         'imu_topic': arg('imu_topic'),

@@ -1,8 +1,8 @@
 """Markers for the dashboard's top-down "command" and "lean" views.
 
-Both are drawn in base_footprint (the robot's position on the floor and its heading, without
-tilt), so a top-down Foxglove view that follows base_footprint always shows the robot's
-forward direction as up.
+Both are drawn in a fixed frame ("dashboard") that never moves, in the robot's own axes
+(x = the robot's forward, y = its left), so the views stay still while the robot walks and
+the robot's forward is always up.
 
   /dashboard/command  speed rings, the commanded velocity (blue arrow), the measured
                       velocity (green, sim only), and the turn command (orange arc)
@@ -49,10 +49,35 @@ def lean_color(degrees):
     return GREEN if degrees < 10.0 else YELLOW if degrees < 25.0 else RED
 
 
-class VelocityEstimate:
-    """Base velocity in base_footprint from successive positions (the sim's ground truth)."""
+class SmoothedPose:
+    """Low-pass filtered floor position and heading, for a camera that glides instead of
+    bouncing with every step. tau is the filter time constant in seconds."""
 
-    def __init__(self, window=0.25):
+    def __init__(self, tau=0.8):
+        self.tau = tau
+        self.state = None
+        self.last = None
+
+    def update(self, t, x, y, yaw):
+        if self.state is None or self.last is None or t - self.last > 1.0:
+            self.state = [x, y, yaw]
+        else:
+            a = min(1.0, (t - self.last) / self.tau)
+            sx, sy, syaw = self.state
+            dyaw = math.atan2(math.sin(yaw - syaw), math.cos(yaw - syaw))  # shortest way round
+            self.state = [sx + a * (x - sx), sy + a * (y - sy), syaw + a * dyaw]
+        self.last = t
+        return tuple(self.state)
+
+
+class VelocityEstimate:
+    """Base velocity in the heading frame from successive positions (the sim's ground truth).
+
+    Averaged over `window` seconds: two gait cycles (v6 steps every 0.7 s) cancel the
+    side-to-side sway of each step, leaving the velocity the robot is actually walking at.
+    """
+
+    def __init__(self, window=1.4):
         self.window = window
         self.samples = collections.deque()
 
@@ -149,9 +174,9 @@ def command_markers(frame, stamp, command, measured):
         arc = circle(TURN_RADIUS, start=0.0, sweep=wz)
         k.line(arc, ORANGE, 0.02)
         k.dot(arc[-1], ORANGE, 0.05)
-    k.text((-0.6, 0.0), f'cmd {vx:+.2f} fwd {vy:+.2f} left  turn {wz:+.2f}', BLUE, 0.06)
+    k.text((-0.56, 0.0), f'cmd {vx:+.2f} fwd {vy:+.2f} left  turn {wz:+.2f}', BLUE, 0.06)
     if measured is not None:
-        k.text((-0.7, 0.0), f'actual {measured[0]:+.2f} fwd {measured[1]:+.2f} left', GREEN, 0.06)
+        k.text((-0.65, 0.0), f'actual {measured[0]:+.2f} fwd {measured[1]:+.2f} left', GREEN, 0.06)
     return k.array
 
 

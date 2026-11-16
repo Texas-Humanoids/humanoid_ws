@@ -2,7 +2,7 @@
   "configById": {
     "3D!robot": {
       "foxglovePanelTitle": "Robot",
-      "followTf": "base_footprint",
+      "followTf": "base_smooth",
       "followMode": "follow-pose",
       "cameraState": {
         "perspective": true,
@@ -47,6 +47,12 @@
           "visible": false
         },
         "frame:base_footprint": {
+          "visible": false
+        },
+        "frame:base_smooth": {
+          "visible": false
+        },
+        "frame:dashboard": {
           "visible": false
         },
         "frame:imu_link": {
@@ -136,96 +142,9 @@
       "synchronize": false,
       "imageMode": {}
     },
-    "Image!camera": {
-      "foxglovePanelTitle": "Camera",
-      "cameraState": {
-        "distance": 20,
-        "perspective": true,
-        "phi": 60,
-        "target": [
-          0,
-          0,
-          0
-        ],
-        "targetOffset": [
-          0,
-          0,
-          0
-        ],
-        "targetOrientation": [
-          0,
-          0,
-          0,
-          1
-        ],
-        "thetaOffset": 45,
-        "fovy": 45,
-        "near": 0.5,
-        "far": 5000
-      },
-      "followMode": "follow-pose",
-      "scene": {},
-      "transforms": {},
-      "topics": {},
-      "layers": {},
-      "publish": {
-        "type": "point",
-        "poseTopic": "/move_base_simple/goal",
-        "pointTopic": "/clicked_point",
-        "poseEstimateTopic": "/initialpose",
-        "poseEstimateXDeviation": 0.5,
-        "poseEstimateYDeviation": 0.5,
-        "poseEstimateThetaDeviation": 0.26179939
-      },
-      "synchronize": false,
-      "imageMode": {
-        "imageTopic": "/camera/image/compressed"
-      }
-    },
-    "Indicator!mode": {
-      "foxglovePanelTitle": "State",
-      "path": "/policy_bridge/mode.data",
-      "style": "background",
-      "fallbackColor": "#3a3d44",
-      "fallbackLabel": "NO DATA",
-      "fontSize": 28,
-      "rules": [
-        {
-          "operator": "=",
-          "rawValue": "WALK",
-          "color": "#2fa84f",
-          "label": "WALK"
-        },
-        {
-          "operator": "=",
-          "rawValue": "STAND",
-          "color": "#d39b00",
-          "label": "STAND"
-        },
-        {
-          "operator": "=",
-          "rawValue": "DISARMED",
-          "color": "#b03a2e",
-          "label": "DISARMED"
-        }
-      ]
-    },
-    "Table!summary": {
-      "foxglovePanelTitle": "Now",
-      "topicPath": "/robot/summary.values"
-    },
-    "DiagnosticSummary!health": {
-      "foxglovePanelTitle": "Health",
-      "topicToRender": "/diagnostics",
-      "pinnedIds": [],
-      "hardwareIdFilter": "",
-      "sortByLevel": true,
-      "minLevel": 0,
-      "secondsUntilStale": 5
-    },
     "3D!command": {
-      "foxglovePanelTitle": "Command (blue) vs measured (green), turn (orange)",
-      "followTf": "base_footprint",
+      "foxglovePanelTitle": "Command (blue) vs actual (green), turn (orange)",
+      "followTf": "dashboard",
       "followMode": "follow-pose",
       "cameraState": {
         "perspective": false,
@@ -269,6 +188,12 @@
           "visible": false
         },
         "frame:base_footprint": {
+          "visible": false
+        },
+        "frame:base_smooth": {
+          "visible": false
+        },
+        "frame:dashboard": {
           "visible": false
         },
         "frame:imu_link": {
@@ -328,7 +253,7 @@
     },
     "3D!lean": {
       "foxglovePanelTitle": "Lean (bubble level; red = fall cutoff)",
-      "followTf": "base_footprint",
+      "followTf": "dashboard",
       "followMode": "follow-pose",
       "cameraState": {
         "perspective": false,
@@ -372,6 +297,12 @@
           "visible": false
         },
         "frame:base_footprint": {
+          "visible": false
+        },
+        "frame:base_smooth": {
+          "visible": false
+        },
+        "frame:dashboard": {
           "visible": false
         },
         "frame:imu_link": {
@@ -429,6 +360,108 @@
       "synchronize": false,
       "imageMode": {}
     },
+    "Image!camera": {
+      "foxglovePanelTitle": "Camera",
+      "cameraState": {
+        "distance": 20,
+        "perspective": true,
+        "phi": 60,
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "targetOffset": [
+          0,
+          0,
+          0
+        ],
+        "targetOrientation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "thetaOffset": 45,
+        "fovy": 45,
+        "near": 0.5,
+        "far": 5000
+      },
+      "followMode": "follow-pose",
+      "scene": {},
+      "transforms": {},
+      "topics": {},
+      "layers": {},
+      "publish": {
+        "type": "point",
+        "poseTopic": "/move_base_simple/goal",
+        "pointTopic": "/clicked_point",
+        "poseEstimateTopic": "/initialpose",
+        "poseEstimateXDeviation": 0.5,
+        "poseEstimateYDeviation": 0.5,
+        "poseEstimateThetaDeviation": 0.26179939
+      },
+      "synchronize": false,
+      "imageMode": {
+        "imageTopic": "/camera/image/compressed"
+      }
+    },
+    "Indicator!mode": {
+      "foxglovePanelTitle": "State",
+      "path": "/policy_bridge/mode.data",
+      "style": "background",
+      "fallbackColor": "#3a3d44",
+      "fallbackLabel": "NO DATA",
+      "fontSize": 26,
+      "rules": [
+        {
+          "operator": "=",
+          "rawValue": "WALK",
+          "color": "#2fa84f",
+          "label": "WALK"
+        },
+        {
+          "operator": "=",
+          "rawValue": "STAND",
+          "color": "#d39b00",
+          "label": "STAND"
+        },
+        {
+          "operator": "=",
+          "rawValue": "DISARMED",
+          "color": "#b03a2e",
+          "label": "DISARMED"
+        }
+      ]
+    },
+    "Indicator!health": {
+      "foxglovePanelTitle": "Health (details on System)",
+      "path": "/robot/health.data",
+      "style": "background",
+      "fallbackColor": "#3a3d44",
+      "fallbackLabel": "NO DATA",
+      "fontSize": 26,
+      "rules": [
+        {
+          "operator": "=",
+          "rawValue": "OK",
+          "color": "#2fa84f",
+          "label": "OK"
+        },
+        {
+          "operator": "=",
+          "rawValue": "WARNING",
+          "color": "#d39b00",
+          "label": "WARNING"
+        },
+        {
+          "operator": "=",
+          "rawValue": "FAULT",
+          "color": "#b03a2e",
+          "label": "FAULT"
+        }
+      ]
+    },
     "Gauge!battery": {
       "foxglovePanelTitle": "Battery (30-42 V)",
       "path": "/robot/battery_voltage.data",
@@ -443,14 +476,14 @@
       "reverse": false,
       "style": "dial",
       "showTicks": true,
-      "tickInterval": 2.0,
+      "tickInterval": 2,
       "reverseDirection": false
     },
-    "Gauge!power": {
-      "foxglovePanelTitle": "Motor power (0-300 W)",
-      "path": "/robot/mechanical_power.data",
+    "Gauge!current": {
+      "foxglovePanelTitle": "Total current, est. (A; BMS 30)",
+      "path": "/robot/current_total.data",
       "minValue": 0,
-      "maxValue": 300,
+      "maxValue": 30,
       "colorMap": "red-yellow-green",
       "colorMode": "colormap",
       "gradient": [
@@ -460,7 +493,41 @@
       "reverse": true,
       "style": "dial",
       "showTicks": true,
-      "tickInterval": 50.0,
+      "tickInterval": 5,
+      "reverseDirection": false
+    },
+    "Gauge!left": {
+      "foxglovePanelTitle": "Left leg, est. (A)",
+      "path": "/robot/current_left.data",
+      "minValue": 0,
+      "maxValue": 20,
+      "colorMap": "red-yellow-green",
+      "colorMode": "colormap",
+      "gradient": [
+        "#0000ff",
+        "#ff00ff"
+      ],
+      "reverse": true,
+      "style": "dial",
+      "showTicks": true,
+      "tickInterval": 5,
+      "reverseDirection": false
+    },
+    "Gauge!right": {
+      "foxglovePanelTitle": "Right leg, est. (A)",
+      "path": "/robot/current_right.data",
+      "minValue": 0,
+      "maxValue": 20,
+      "colorMap": "red-yellow-green",
+      "colorMode": "colormap",
+      "gradient": [
+        "#0000ff",
+        "#ff00ff"
+      ],
+      "reverse": true,
+      "style": "dial",
+      "showTicks": true,
+      "tickInterval": 5,
       "reverseDirection": false
     },
     "Plot!hip_pitch": {
@@ -726,20 +793,36 @@
       "followingViewWidth": 300,
       "sidebarDimension": 240
     },
-    "Plot!powerhist": {
-      "foxglovePanelTitle": "Motor power (W)",
+    "Plot!current": {
+      "foxglovePanelTitle": "Estimated current (A)",
       "paths": [
         {
-          "value": "/robot/mechanical_power.data",
+          "value": "/robot/current_total.data",
           "enabled": true,
           "timestampMethod": "receiveTime",
-          "label": "power",
+          "label": "total",
+          "color": "#f7df71",
+          "lineSize": 2
+        },
+        {
+          "value": "/robot/current_left.data",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "left leg",
+          "color": "#4e98e2",
+          "lineSize": 1.5
+        },
+        {
+          "value": "/robot/current_right.data",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "right leg",
           "color": "#f5774d",
           "lineSize": 1.5
         }
       ],
-      "showLegend": false,
-      "legendDisplay": "top",
+      "showLegend": true,
+      "legendDisplay": "floating",
       "showPlotValuesInLegend": false,
       "showXAxisLabels": true,
       "showYAxisLabels": true,
@@ -827,6 +910,15 @@
       "minYValue": 0,
       "maxYValue": 100
     },
+    "DiagnosticSummary!health": {
+      "foxglovePanelTitle": "Health",
+      "topicToRender": "/diagnostics",
+      "pinnedIds": [],
+      "hardwareIdFilter": "",
+      "sortByLevel": true,
+      "minLevel": 0,
+      "secondsUntilStale": 5
+    },
     "RosOut!log": {
       "foxglovePanelTitle": "Log (warnings and errors)",
       "topicToRender": "/rosout",
@@ -861,27 +953,32 @@
             },
             "second": {
               "direction": "column",
-              "first": "Indicator!mode",
+              "first": {
+                "direction": "row",
+                "first": "Indicator!mode",
+                "second": "Indicator!health",
+                "splitPercentage": 50
+              },
               "second": {
                 "direction": "column",
                 "first": {
-                  "direction": "row",
-                  "first": "Gauge!battery",
-                  "second": "Gauge!power",
-                  "splitPercentage": 50
-                },
-                "second": {
                   "direction": "column",
-                  "first": "Table!summary",
-                  "second": {
-                    "direction": "column",
-                    "first": "Image!camera",
-                    "second": "DiagnosticSummary!health",
+                  "first": {
+                    "direction": "row",
+                    "first": "Gauge!battery",
+                    "second": "Gauge!current",
                     "splitPercentage": 50
                   },
-                  "splitPercentage": 38
+                  "second": {
+                    "direction": "row",
+                    "first": "Gauge!left",
+                    "second": "Gauge!right",
+                    "splitPercentage": 50
+                  },
+                  "splitPercentage": 52
                 },
-                "splitPercentage": 24
+                "second": "Image!camera",
+                "splitPercentage": 42
               },
               "splitPercentage": 9
             },
@@ -926,7 +1023,7 @@
               "first": {
                 "direction": "column",
                 "first": "Plot!battery",
-                "second": "Plot!powerhist",
+                "second": "Plot!current",
                 "splitPercentage": 50
               },
               "second": {
@@ -937,7 +1034,12 @@
               },
               "splitPercentage": 50
             },
-            "second": "RosOut!log",
+            "second": {
+              "direction": "column",
+              "first": "DiagnosticSummary!health",
+              "second": "RosOut!log",
+              "splitPercentage": 45
+            },
             "splitPercentage": 55
           }
         }

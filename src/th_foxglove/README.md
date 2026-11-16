@@ -53,23 +53,35 @@ nothing extra to run on the robot.
 
 | Panel | Source | What it tells you |
 |---|---|---|
-| Robot | `/robot_description`, `/tf` | The WalkerV2 model with every joint at its measured angle, seen from the same three-quarter angle as it turns. In sim the base follows MuJoCo's ground truth; on hardware it tilts with the IMU at a fixed height (no position estimate yet). |
-| Command radar | `/dashboard/command` | Top-down, robot's forward = up. Blue arrow: commanded walking velocity; green arrow: how the base actually moves (sim only for now); orange arc: turn command. Rings at 0.25 and 0.5 m/s. |
-| Lean level | `/dashboard/lean` | Top-down bubble level: the dot sits where the body leans (forward = up, left = left), with a 2 s trail to show sway. Green under 10°, yellow under 25°, red beyond; the red ring is the 57° fall cutoff. |
-| State | `/policy_bridge/mode` | DISARMED (red, motors damp) / STAND (yellow) / WALK (green) |
-| Battery, Motor power gauges | `/robot/battery_voltage`, `/robot/mechanical_power` | 30-42 V for the 10S pack; 0-300 W of motor work. Battery is empty in sim. |
-| Readings table | `/robot/summary` | The exact numbers: battery (V and %), motor power, tilt, lean, hottest motor. |
+| Robot | `/robot_description`, `/tf` | The WalkerV2 model with every joint at its measured angle. The camera follows `base_smooth` (position and heading, low-passed ~0.8 s), so it glides with the robot instead of jolting each step. In sim the base follows MuJoCo's ground truth; on hardware it tilts with the IMU at a fixed height (no position estimate yet). |
+| Command radar | `/dashboard/command` | Top-down and fixed in place; the robot's forward is up. Blue: commanded velocity. Green: actual walking velocity, averaged over two steps so step sway cancels (sim only for now). Orange arc: turn command. Rings at 0.25 and 0.5 m/s. |
+| Lean level | `/dashboard/lean` | Top-down bubble level, fixed in place: the dot sits where the body leans (forward = up, left = left), with a 2 s trail. Green under 10°, yellow under 25°, red beyond; the red ring is the 57° fall cutoff. |
+| State, Health | `/policy_bridge/mode`, `/robot/health` | WALK / STAND / DISARMED, and OK / WARNING / FAULT for the motors, IMU and battery (details on the System tab) |
+| Battery gauge | `/robot/battery_voltage` | 30-42 V for the 10S pack (empty in sim) |
+| Current gauges | `/robot/current_*` | Estimated battery current, total (BMS limit 30 A) and per leg. See below. |
 | Camera | `/camera/image/compressed` | The bench camera ([tools/bench_camera](../../tools/bench_camera/README.md)) |
-| Health | `/diagnostics` | One row per motor (faults, mode, temperature, torque, bus voltage), plus battery, IMU rate and bridge mode; problems sort to the top. |
 
 **Joints**: one plot per joint (hip pitch, roll, yaw, knee, ankle), each with
 the left (blue) and right (orange) leg, measured as a solid line and the policy
 target as a thin light line. If measured does not follow target, that joint's
 gains, calibration or motor are the suspects. Plus the state history.
 
-**System**: battery voltage over the last 5 minutes, motor power, knee and
-ankle torque (the joints that carry the robot), Jetson CPU and the hottest
-motor, and the log (warnings and errors only).
+**System**: battery voltage over the last 5 minutes, estimated current (total
+and per leg), knee and ankle torque, Jetson CPU and the hottest motor, the
+Health table (one row per motor with faults, temperature, torque and bus
+voltage), and the log (warnings and errors only).
+
+### Current estimate
+
+The motors report torque, speed and supply voltage but not the current they
+draw from the battery, and RobStride does not publish the winding resistance
+or torque constant needed to compute it. So the dashboard estimates it from
+the power the motors deliver: `sum(|torque x speed|) / (voltage x 0.85)`.
+Braking counts as draw too, so it errs high, the safe side for the 30 A BMS
+limit. It misses holding current at standstill and everything else on the
+pack; set `battery.base_current` in the robot yaml for the Jetson and
+converters once measured. A current sensor on the battery lead would make it a
+real measurement.
 
 ## Battery
 
