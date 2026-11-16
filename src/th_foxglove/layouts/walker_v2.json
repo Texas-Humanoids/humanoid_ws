@@ -32,6 +32,7 @@
       "scene": {
         "enableStats": false,
         "backgroundColor": "#262a31",
+        "meshUpAxis": "z_up",
         "transforms": {
           "showLabel": false,
           "axisSize": 0.08,
@@ -81,6 +82,12 @@
       },
       "topics": {
         "/robot_description": {
+          "visible": true
+        },
+        "/tf": {
+          "visible": true
+        },
+        "/tf_static": {
           "visible": true
         }
       },
@@ -194,29 +201,9 @@
         }
       ]
     },
-    "RawMessages!volts": {
-      "foxglovePanelTitle": "Battery (V)",
-      "topicPath": "/robot/battery_voltage.data",
-      "defaultExpanded": false,
-      "fontSize": 30
-    },
-    "RawMessages!percent": {
-      "foxglovePanelTitle": "Battery (%)",
-      "topicPath": "/robot/battery_percent.data",
-      "defaultExpanded": false,
-      "fontSize": 30
-    },
-    "RawMessages!power": {
-      "foxglovePanelTitle": "Motor power (W)",
-      "topicPath": "/robot/mechanical_power.data",
-      "defaultExpanded": false,
-      "fontSize": 30
-    },
-    "RawMessages!tilt": {
-      "foxglovePanelTitle": "Tilt (deg)",
-      "topicPath": "/robot/tilt_deg.data",
-      "defaultExpanded": false,
-      "fontSize": 30
+    "Table!summary": {
+      "foxglovePanelTitle": "Now",
+      "topicPath": "/robot/summary.values"
     },
     "Plot!command": {
       "foxglovePanelTitle": "Speed command",
@@ -247,7 +234,7 @@
         }
       ],
       "showLegend": true,
-      "legendDisplay": "top",
+      "legendDisplay": "floating",
       "showPlotValuesInLegend": false,
       "showXAxisLabels": true,
       "showYAxisLabels": true,
@@ -277,14 +264,16 @@
         }
       ],
       "showLegend": true,
-      "legendDisplay": "top",
+      "legendDisplay": "floating",
       "showPlotValuesInLegend": false,
       "showXAxisLabels": true,
       "showYAxisLabels": true,
       "isSynced": true,
       "xAxisVal": "timestamp",
       "followingViewWidth": 30,
-      "sidebarDimension": 240
+      "sidebarDimension": 240,
+      "minYValue": -30,
+      "maxYValue": 30
     },
     "DiagnosticSummary!health": {
       "foxglovePanelTitle": "Health",
@@ -332,7 +321,7 @@
         }
       ],
       "showLegend": true,
-      "legendDisplay": "top",
+      "legendDisplay": "floating",
       "showPlotValuesInLegend": false,
       "showXAxisLabels": true,
       "showYAxisLabels": true,
@@ -378,7 +367,7 @@
         }
       ],
       "showLegend": true,
-      "legendDisplay": "top",
+      "legendDisplay": "floating",
       "showPlotValuesInLegend": false,
       "showXAxisLabels": true,
       "showYAxisLabels": true,
@@ -424,7 +413,7 @@
         }
       ],
       "showLegend": true,
-      "legendDisplay": "top",
+      "legendDisplay": "floating",
       "showPlotValuesInLegend": false,
       "showXAxisLabels": true,
       "showYAxisLabels": true,
@@ -470,7 +459,7 @@
         }
       ],
       "showLegend": true,
-      "legendDisplay": "top",
+      "legendDisplay": "floating",
       "showPlotValuesInLegend": false,
       "showXAxisLabels": true,
       "showYAxisLabels": true,
@@ -516,7 +505,7 @@
         }
       ],
       "showLegend": true,
-      "legendDisplay": "top",
+      "legendDisplay": "floating",
       "showPlotValuesInLegend": false,
       "showXAxisLabels": true,
       "showYAxisLabels": true,
@@ -618,7 +607,7 @@
         }
       ],
       "showLegend": true,
-      "legendDisplay": "top",
+      "legendDisplay": "floating",
       "showPlotValuesInLegend": false,
       "showXAxisLabels": true,
       "showYAxisLabels": true,
@@ -648,7 +637,7 @@
         }
       ],
       "showLegend": true,
-      "legendDisplay": "top",
+      "legendDisplay": "floating",
       "showPlotValuesInLegend": false,
       "showXAxisLabels": true,
       "showYAxisLabels": true,
@@ -696,31 +685,16 @@
               "first": {
                 "direction": "column",
                 "first": "Indicator!mode",
-                "second": {
-                  "direction": "row",
-                  "first": {
-                    "direction": "row",
-                    "first": "RawMessages!volts",
-                    "second": "RawMessages!percent",
-                    "splitPercentage": 50
-                  },
-                  "second": {
-                    "direction": "row",
-                    "first": "RawMessages!power",
-                    "second": "RawMessages!tilt",
-                    "splitPercentage": 50
-                  },
-                  "splitPercentage": 50
-                },
-                "splitPercentage": 45
+                "second": "Table!summary",
+                "splitPercentage": 22
               },
               "second": {
                 "direction": "column",
                 "first": "Image!camera",
                 "second": "DiagnosticSummary!health",
-                "splitPercentage": 55
+                "splitPercentage": 45
               },
-              "splitPercentage": 22
+              "splitPercentage": 40
             },
             "splitPercentage": 62
           }

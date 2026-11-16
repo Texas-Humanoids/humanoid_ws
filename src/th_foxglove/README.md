@@ -55,9 +55,9 @@ nothing extra to run on the robot.
 |---|---|---|
 | Robot | `/robot_description`, `/tf` | The WalkerV2 model with every joint at its measured angle. In sim the base follows MuJoCo's ground truth; on hardware it tilts with the IMU at a fixed height (no position estimate yet). |
 | State | `/policy_bridge/mode` | DISARMED (red, motors damp) / STAND (yellow) / WALK (green) |
-| Battery (V), Battery (%), Motor power (W), Tilt (deg) | `/robot/*` | Rounded readouts. Battery is empty in sim. |
+| Readings table | `/robot/summary` | Battery (V and %), motor power, tilt, forward/left lean and hottest motor, as text. Battery and temperature show `-` in sim. |
 | Speed command | `/cmd_vel` | Forward, sideways and turn command from the stick |
-| Lean | `/robot/lean_*_deg` | Forward (nose down +) and left (left side down +) lean; the bridge disarms at 57° tilt |
+| Lean | `/robot/lean_*_deg` | Forward (nose down +) and left (left side down +) lean, fixed at ±30°; the bridge disarms at 57° tilt |
 | Camera | `/camera/image/compressed` | The bench camera ([tools/bench_camera](../../tools/bench_camera/README.md)) |
 | Health | `/diagnostics` | One row per motor (faults, mode, temperature, torque, bus voltage), plus battery, IMU rate and bridge mode; problems sort to the top. Click a row for details. |
 
@@ -134,6 +134,9 @@ ros2 launch th_foxglove foxglove.launch.py \
 
 ## Troubleshooting
 
+- **Robot parts are rotated 90° and pulled apart.** The 3D panel's *Scene → Mesh
+  up-axis* must be **Z-up** (the layout sets it). Foxglove's default, Y-up, turns
+  every CAD STL mesh on its side.
 - **Robot is grey boxes or missing.** The meshes come through the bridge as
   `package://th_description/...`; make sure `th_description` is built
   (`colcon build --packages-up-to th_bringup` does it).

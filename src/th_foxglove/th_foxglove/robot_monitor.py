@@ -14,6 +14,8 @@ Outputs:
   /robot/tilt_deg                std_msgs/Float64  base tilt from upright, degrees
   /robot/lean_forward_deg,       std_msgs/Float64  lean toward +x (nose down) and +y (left
   /robot/lean_left_deg                             side down), degrees
+  /robot/summary                 diagnostic_msgs/DiagnosticStatus  the readings above as
+                                 labeled text (key/value rows), for a table on the dashboard
   The /robot/* numbers are rounded so the dashboard shows them as they are read.
   /diagnostics                   diagnostic_msgs/DiagnosticArray  battery, bridge, IMU, motors
   /tf                            world -> base_link: the sim's ground-truth pose when running
@@ -126,6 +128,7 @@ class RobotMonitor(Node):
         self.percent_pub = self.create_publisher(Float64, '/robot/battery_percent', 10)
         self.lean_forward_pub = self.create_publisher(Float64, '/robot/lean_forward_deg', 10)
         self.lean_left_pub = self.create_publisher(Float64, '/robot/lean_left_deg', 10)
+        self.summary_pub = self.create_publisher(DiagnosticStatus, '/robot/summary', 10)
         self.diagnostics_pub = self.create_publisher(DiagnosticArray, '/diagnostics', 10)
         self.tf = TransformBroadcaster(self)
         self.imu_count_at = (0, time.monotonic())
@@ -202,11 +205,32 @@ class RobotMonitor(Node):
         if temperatures:
             self.temperature_pub.publish(Float64(data=round(float(max(temperatures)), 1)))
         _, q, source = self.base_pose()
+        tilt = forward = left = None
         if source != 'none':
-            self.tilt_pub.publish(Float64(data=round(math.degrees(telemetry.tilt(q)), 1)))
+            tilt = math.degrees(telemetry.tilt(q))
             forward, left = telemetry.lean(q)
+            self.tilt_pub.publish(Float64(data=round(tilt, 1)))
             self.lean_forward_pub.publish(Float64(data=round(forward, 1)))
             self.lean_left_pub.publish(Float64(data=round(left, 1)))
+
+        dash = '-'
+        if math.isfinite(volts):
+            battery_text = f'{volts:.1f} V'
+            if math.isfinite(battery.percentage):
+                battery_text += f'  ({battery.percentage * 100:.0f}%)'
+        else:
+            battery_text = dash
+        power = (telemetry.mechanical_power(torques, velocities)
+                 if any(t is not None for t in torques) else None)
+        rows = {
+            'Battery': battery_text,
+            'Motor power': f'{power:.0f} W' if power is not None else dash,
+            'Tilt': f'{tilt:.1f} deg' if tilt is not None else dash,
+            'Lean fwd / left': (f'{forward:+.1f} / {left:+.1f} deg'
+                                if forward is not None else dash),
+            'Hottest motor': f'{max(temperatures):.0f} C' if temperatures else dash,
+        }
+        self.summary_pub.publish(status('robot: summary', OK, '', rows))
 
     # -- 1 Hz diagnostics -------------------------------------------------------------------
 
