@@ -151,5 +151,7 @@ def status_frame(motor: int, st: Status, r: Ranges):
     return cid, data
 
 
-def param_reply(motor: int, index: int, value: float):
-    return can_id(T_READ, motor, HOST), struct.pack('<HHf', index, 0, value)
+def param_reply(motor: int, index: int, value):
+    """`value` is a float, or the 4 raw value bytes (for integer parameters)."""
+    raw = bytes(value) if isinstance(value, (bytes, bytearray)) else struct.pack('<f', value)
+    return can_id(T_READ, motor, HOST), struct.pack('<HH', index, 0) + raw

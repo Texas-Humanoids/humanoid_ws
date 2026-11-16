@@ -9,6 +9,9 @@ applies the kp/kd we send. One motor at a time, with **nothing attached to the o
 | `chirp.py` | Jetson | Drives one motor over raw SocketCAN at 500 Hz and logs every command and reply. Standard library only |
 | `fit.py` | desktop | Fits the motor model training uses to the logs; writes YAML and plots. numpy, scipy, matplotlib |
 | `rsproto.py` | both | Python port of `robstride_motor/can_protocol.hpp` |
+| `spin.py` | Jetson | One motor at a constant velocity: `spin.py 11 2 +` |
+| `mit_all.py` | Jetson | Every motor at once in MIT mode: hold, sine, spin, home |
+| `monitor.py` | Jetson | Live table of everything the drives report; never moves anything |
 | `test_sysid.py` | both | Protocol vectors (same as the C++ tests), every test against a simulated motor, the abort paths, and fit recovery of known parameters |
 
 ## Bench setup
@@ -17,7 +20,7 @@ applies the kp/kd we send. One motor at a time, with **nothing attached to the o
   housing spins instead of the output.
 - Tape flag on the output face so you can see it move. Nothing else on the output.
 - Someone at the power switch.
-- **Stop `robot.launch.py` and every `robstride_motor_node`.** They share `can_usb`, and a running
+- **Stop `robot.launch.py` and every `robstride_motor_node`.** They share the CAN bus, and a running
   node would fight the test.
 - Before the first run on an RS03 or RS02, check the MIT gain scaling with the bench tools
   (`bench/scale_check.py`, then `bench/hold_test.py` at kp 5). The RS03 and RS02 ranges have never run
@@ -31,7 +34,8 @@ python3 tools/walker/sysid/chirp.py --id 14 top-speed    # separately: spins nea
 ```
 
 The model comes from the ID (11-15 / 21-25: RS03, RS03, RS02, RS03, RS06). For other IDs, pass
-`--model`. It prints the plan and asks before moving anything. Logs go to
+`--model`. The CAN interface is found automatically: whichever adapter (`can_left`, `can_right`,
+`can_usb`) the motor answers on. Pass `--iface` to choose one. It prints the plan and asks before moving anything. Logs go to
 `sysid_logs/<date>_m<id>_<test>/` (`meta.json`, `cmd.csv`, `fb.csv`). Add `--note "..."` to tag a run,
 for example with the room temperature.
 
@@ -60,7 +64,80 @@ for example with the room temperature.
   - Or lower `--rate`.
   - Or check the bus with `canbusload can_usb@1000000`.
 
-**Preview anywhere, with no CAN:** `python3 tools/walker/sysid/chirp.py --id 14 all --sim`.
+## Spin one motor by hand (`spin.py`)
+
+`spin.py` turns one motor at a constant velocity: you give the ID, the speed (rad/s), the direction, and optionally how many seconds to hold the speed (default 5).
+
+```bash
+python3 tools/walker/sysid/spin.py 11 2 +          # motor 11, +2 rad/s, 5 s
+python3 tools/walker/sysid/spin.py 14 1.5 - 10     # motor 14, -1.5 rad/s, 10 s
+python3 tools/walker/sysid/spin.py                 # interactive: type "11 2 +", "15 4 - 8", ... then q
+```
+
+- **Safety:** it's `chirp.py spin` underneath, so it gets the same torque limit, CAN timeout, safety-setting checks and aborts as the other tests.
+- **Motion:** it ramps up over 1 s, holds the speed, ramps down, damps, then stops.
+- **Control:** velocity only (kp 0, kd 2 / 1 / 2 for RS03 / RS02 / RS06). The output turns freely, so nothing may be attached.
+- **After each spin it prints** the speed actually reached and the torque that took, which is the friction at that speed.
+- **Speed cap:** just above the no-load speed at 36 V (RS03 16.8, RS02 34.9, RS06 41.5 rad/s).
+- **Direction:** `+` is the motor's own increasing angle. A joint's sign on the robot also depends on its `direction` in the robot yaml.
+- **Rewind:** the output is left where the spin ended, not turned back to 0. Before a position test, run `chirp.py --id <id> step --rewind-only`.
+- **Before running:** stop `robot.launch.py` and every motor node.
+- **Extra options** go after the arguments, for example `--ramp 2`, `--kd 1`, `--model RS02`, or `--sim` to preview.
+
+## Drive every motor at once (`mit_all.py`)
+
+One process sends full MIT frames (q_ref, v_ref, kp, kd, τ_ff) to every motor it finds on every adapter, at 200 Hz each. It's the same frame the ROS motor node sends, but with no ROS.
+
+```bash
+python3 tools/walker/sysid/mit_all.py home                   # first, after any spins: every output back to 0 rad
+python3 tools/walker/sysid/mit_all.py sine                   # +/-0.2 rad at 0.5 Hz, 10 s, v6 gains
+python3 tools/walker/sysid/mit_all.py sine --amp 0.3 --freq 1 --seconds 20 --stagger 30
+python3 tools/walker/sysid/mit_all.py hold --seconds 30      # stiff at the v6 gains: push on it
+python3 tools/walker/sysid/mit_all.py spin --speed 2 --dir - # velocity only, like spin.py
+python3 tools/walker/sysid/mit_all.py sine --ids 11-15       # one leg
+```
+
+| Motion | kp / kd | What it does |
+|---|---|---|
+| `hold` | v6 gains (RS03 60/3, RS02 25/1, RS06 30/1.5) | holds the angle each motor starts at |
+| `sine` | v6 gains | `--amp` rad at `--freq` Hz around the start angle; 1 s fade in and out. `--stagger` deg makes a wave along the motors |
+| `spin` | 0 / 2 (RS02 1) | `--speed` rad/s for `--seconds`; prints each motor's speed and friction |
+| `home` | 0 / 1 (RS02 0.5) | turns every output to mechPos 0 at up to 2 rad/s, all at once |
+
+- **Defaults:** every one of 11–15 and 21–25 that answers (the rest are listed as skipped). Pass `--ids` and every listed motor must answer.
+- **Before `hold` or `sine`, run `home` after any spins.** The MIT angle wraps at ±4π (±12.6 rad), and spins leave outputs several turns away. The script refuses to start a position motion if any motor's MIT angle doesn't match its mechPos, or is too close to the wrap. That refusal is what tells you to run `home`.
+- **Safety:** each motor gets chirp.py's setup (torque limit, CAN timeout, both checked). All 10 are configured before any is enabled. If any one motor has a fault, leaves run mode, goes over 70 °C, misses replies for 50 ms, or moves further than the motion allows, **every** motor is damped and stopped. Ctrl-C does the same.
+- **Output:** per motor, the reply ratio plus the tracking error (`hold` / `sine`) or the speed and friction (`spin`). Logs go to `sysid_logs/<date>_mit_all_<motion>/`, where `cmd.csv` and `fb.csv` have an `id` column.
+- **Measured 2026-11-15, all 10 at 39 V:** `sine` ±0.2 rad at 0.5 Hz tracks within 7.5–9.1 mrad rms with 100% replies. `home` from 2–3 turns away takes about 10 s.
+
+## See everything the drives report (`monitor.py`)
+
+```bash
+python3 tools/walker/sysid/monitor.py             # live table, every motor on every adapter (q quits, p pauses polling)
+python3 tools/walker/sysid/monitor.py --once      # one snapshot, then exit (scripts, logs)
+python3 tools/walker/sysid/monitor.py --csv m.csv # also log every motor 10x a second
+python3 tools/walker/sysid/monitor.py --passive   # send nothing, only listen
+```
+
+- **It never moves anything,** so it can run while the robot, `chirp.py` or `mit_all.py` is running. Run it in a second SSH window.
+- **Top table:**
+  - mode (RUN / reset), faults
+  - position, velocity and torque estimate, temperature
+  - bus voltage, q-axis current
+  - status frames/s, and commands/s from whatever program is driving the motor
+- **Bottom table:**
+  - run mode, mechPos / mechVel (the true multi-turn angle)
+  - torque, current and speed limits; the drive's own position and speed loop gains
+  - the last command another program sent (q_ref, kp, kd, τ)
+  - the MCU UID
+- **Where the values come from:**
+  - **Registers** come from parameter reads, about 1000 small frames/s per bus. Running with `mit_all.py` on both buses cost it no replies.
+  - **Status values** come from the replies to whatever is commanding the motor.
+  - **A motor nobody has commanded for 2 s** gets a stop frame once a second. A stopped drive answers with a status frame, which is how temperature and position appear while idle.
+- **New motors** on any ID 1–127 appear within 5 s, so you can plug things in while it runs.
+- **Colours:** green = running, red = fault or over 70 °C, yellow = over 55 °C, dim = no reply for 3 s.
+
+**Preview anywhere, with no CAN:** `python3 tools/walker/sysid/chirp.py --id 14 all --sim`. `mit_all.py` and `monitor.py` take `--sim` too.
 
 ## Fit (desktop)
 

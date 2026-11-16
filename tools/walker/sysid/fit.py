@@ -35,7 +35,8 @@ from scipy.optimize import least_squares
 VS = 0.01          # rad/s, Coulomb smoothing
 DT = 5e-4          # s, fit integration step
 NO_LOAD_48V = {'RS03': 20.4, 'RS02': 42.9, 'RS06': 50.3}
-J_GUESS = {'RS03': 0.015, 'RS02': 0.004, 'RS06': 0.008}
+# Starting point and bounds (0.1x..10x) for the inertia fit. Measured: RS03 0.066..0.074 (m21), RS02 0.011..0.013 (m13).
+J_GUESS = {'RS03': 0.07, 'RS02': 0.012, 'RS06': 0.008}
 
 
 # ============================================================================= loading
@@ -265,7 +266,9 @@ def analyze_friction(run, out, plots):
               f'> kd * v_ref there')
     out.update(Fc=f['Fc'], b=f['b'], Fc_pos=f['Fc_pos'], Fc_neg=f['Fc_neg'],
                Fc_from_estimate=res['tau_meas']['Fc'], b_from_estimate=res['tau_meas']['b'],
-               torque_estimate_ratio=ratio)
+               torque_estimate_ratio=ratio,
+               friction_points=[dict(v=r['v'], tau=r['tau_cmd'], tau_drive=r['tau_meas'],
+                                     moving=r['moving']) for r in rows])
     if plots:
         import matplotlib.pyplot as plt
         fig, ax = plt.subplots(figsize=(6, 4))
@@ -280,11 +283,28 @@ def analyze_friction(run, out, plots):
     return res
 
 
+def bode_inertia_delay(f, g_db, phase_deg):
+    """Free rotor: q/tau = e^(-s d) / (J s^2) once friction is small next to inertia. J from the
+    magnitude (f >= 3 Hz), d from the slope of the phase beyond -180 deg (f >= 8 Hz). Independent
+    of the time-domain fit, which stick-slip friction can pull around. -> (J, d) or (None, None)."""
+    m = f >= 3.0
+    if m.sum() < 3:
+        return None, None
+    w = 2 * np.pi * f[m]
+    J = float(np.exp(np.mean(np.log(1.0 / (10 ** (g_db[m] / 20) * w ** 2)))))
+    ph = phase_deg - 360.0 * np.round((np.median(phase_deg[m]) + 180.0) / 360.0)
+    h = f >= 8.0
+    if h.sum() < 3:
+        return J, None
+    slope = np.polyfit(f[h], ph[h], 1)[0]   # deg per Hz
+    return J, float(max(0.0, -slope / 360.0))
+
+
 def analyze_torque_chirp(run, prior, out, plots):
     model = run.meta['model']
-    jg = J_GUESS[model]
+    jg = run.meta['profile'].get('j_guess') or J_GUESS[model]  # what the run was sized for
     base = dict(J=jg, b=prior.get('b', 0.01), Fc=prior.get('Fc', 0.1), delay=0.0)
-    bounds = dict(J=(0.2 * jg, 5 * jg), b=(0.0, 0.5), Fc=(0.0, 3.0))
+    bounds = dict(J=(0.1 * jg, 10 * jg), b=(0.0, 0.5), Fc=(0.0, 3.0))
     free = ['J'] if 'Fc' in prior else ['J', 'b', 'Fc']
     delays = list(np.arange(0.0, 0.0161, 0.001))
     label = 'torque chirp' + (' (Fc, b fixed from friction run)' if 'Fc' in prior else '')
@@ -292,6 +312,11 @@ def analyze_torque_chirp(run, prior, out, plots):
     prof = run.meta['profile']
     f, g_m, p_m, g_s, p_s = run_bode(run, ws, Q, 5, prof['f0'] * 1.2, prof['f1'] / 1.1)
     out.update(J=p['J'], delay=p['delay'], torque_chirp_rms=rms)
+    jb, db = bode_inertia_delay(f, g_m, p_m)
+    if jb is not None:
+        print(f'  torque chirp, from the Bode plot instead: J {jb:.5f} (|q/tau| = 1/(J w^2), f >= 3 Hz), '
+              f'delay {db * 1e3:.2f} ms (phase slope, f >= 8 Hz)')
+        out.update(J_bode=jb, delay_bode=db)
     if 'Fc' not in prior:
         out.update(Fc_torque_chirp=p['Fc'], b_torque_chirp=p['b'])
     if plots:
@@ -474,7 +499,7 @@ def to_builtin(x):
         return {k: to_builtin(v) for k, v in x.items()}
     if isinstance(x, (list, tuple)):
         return [to_builtin(v) for v in x]
-    if isinstance(x, (np.floating, np.integer)):
+    if isinstance(x, np.generic):  # numpy floats, ints and bools
         return x.item()
     return x
 

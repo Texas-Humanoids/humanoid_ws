@@ -48,7 +48,8 @@ MODEL_BY_SLOT = {1: 'RS03', 2: 'RS03', 3: 'RS02', 4: 'RS03', 5: 'RS06'}
 # v6 policy gains (policies/walker_v2/v6/policy_spec.json), the ones the robot runs.
 DEPLOY_GAINS = {'RS03': (60.0, 3.0), 'RS02': (25.0, 1.0), 'RS06': (30.0, 1.5)}
 # Training's armature values (datasheet-based guesses); only used to size the torque chirp.
-J_GUESS = {'RS03': 0.015, 'RS02': 0.004, 'RS06': 0.008}
+# Measured 2026-11-15 (commanded-torque units): RS03 0.07 (m21), RS02 0.012 (m13). RS06 is a guess.
+J_GUESS = {'RS03': 0.07, 'RS02': 0.012, 'RS06': 0.008}
 # Default torque caps for the tests, ~20-25 % of peak. Written to the drive (0x700B).
 TORQUE_CAP = {'RS03': 12.0, 'RS02': 4.0, 'RS06': 8.0}
 NO_LOAD_48V = {'RS03': 20.4, 'RS02': 42.9, 'RS06': 50.3}  # rad/s, datasheet @ 48 V
@@ -188,6 +189,24 @@ def top_speed_profile(vmax, kd, ramp=3.0, hold=2.0, pause=1.0):
                    params=dict(vmax=vmax, kd=kd, ramp=ramp, hold=hold, pause=pause))
 
 
+def spin_profile(v, kd, hold, ramp=1.0, pause=0.5):
+    """Constant velocity v (signed, rad/s): ramp up, hold, ramp down, short pause. kp 0, kd only."""
+    pieces = [(ramp, 0.0, v), (ramp + hold, v, v), (2 * ramp + hold, v, 0.0),
+              (2 * ramp + hold + pause, 0.0, 0.0)]
+
+    def fn(t):
+        start = 0.0
+        for end, a, b in pieces:
+            if t < end:
+                return Command(v=a + (b - a) * (t - start) / (end - start), kd=kd)
+            start = end
+        return Command(kd=kd)
+    return Profile('spin', pieces[-1][0], fn, None,
+                   describe=f'constant {v:+g} rad/s for {hold:g} s ({v * hold / (2 * math.pi):+.1f} turns), '
+                            f'{ramp:g} s ramps, kd {kd:g}, kp 0. The output SPINS.',
+                   params=dict(v=v, kd=kd, hold=hold, ramp=ramp, pause=pause, rewind=False))
+
+
 def itertools_accumulate(xs):
     total = 0.0
     for x in xs:
@@ -203,7 +222,7 @@ def build_profile(test: str, model: str, a) -> Profile:
         return friction_profile(a.speeds, a.hold or 2.0, kd if kd is not None else FRICTION_KD[model])
     if test == 'torque-chirp':
         return torque_chirp_profile(a.f0 or 2.0, a.f1 or 40.0, a.duration or 30.0, a.amp or 0.2,
-                                    J_GUESS[model], 0.8 * a.torque_limit,
+                                    a.j_guess or J_GUESS[model], 0.8 * a.torque_limit,
                                     kp if kp is not None else 0.5, kd if kd is not None else 0.0)
     if test.startswith('pos-chirp'):
         hold_rate = a.hold_rate if a.hold_rate is not None else (50.0 if test == 'pos-chirp@50' else 0.0)
@@ -217,7 +236,16 @@ def build_profile(test: str, model: str, a) -> Profile:
         r = rs.RANGES[model]
         vmax = a.vmax or min(0.98 * r.velocity_max, 1.25 * NO_LOAD_48V[model] * a.bus_voltage / 48.0)
         return top_speed_profile(vmax, kd if kd is not None else TOP_SPEED_KD[model])
+    if test == 'spin':
+        sign = 1.0 if a.dir in ('+', 'pos', 'positive') else -1.0
+        return spin_profile(sign * a.speed, kd if kd is not None else TOP_SPEED_KD[model],
+                            a.duration or 5.0, a.ramp)
     raise ValueError(test)
+
+
+def spin_speed_cap(model: str, bus_voltage: float) -> float:
+    """Highest speed `spin` accepts: just above no-load at the bus voltage, inside the wire range."""
+    return min(0.98 * rs.RANGES[model].velocity_max, 1.1 * NO_LOAD_48V[model] * bus_voltage / 48.0)
 
 
 # ============================================================================= clocks and buses
@@ -295,7 +323,7 @@ class SimMotor:
     The drive's PD runs every `dt`; commands take effect `delay` s after they are sent; replies
     leave `reply_latency` s after a command. Used by --sim and by the tests."""
 
-    def __init__(self, motor_id, model, J=0.015, b=0.01, Fc=0.15, delay=0.003, vbus=36.4,
+    def __init__(self, motor_id, model, J=0.07, b=0.01, Fc=0.15, delay=0.003, vbus=36.4,
                  reply_latency=0.0006, tau_noise=0.01, temp=32.0, q0=0.3, seed=0):
         self.id, self.r = motor_id, rs.RANGES[model]
         self.J, self.b, self.Fc, self.delay = J, b, Fc, delay
@@ -313,6 +341,11 @@ class SimMotor:
         self.received = []                   # comm types the motor got, in order
         self.commands = []                   # decoded MIT commands (q, v, kp, kd, tau)
         self.fault_at = None                 # inject: (time, fault bits)
+        self.drop_writes = set()             # inject: parameter writes the drive loses
+        self.bus_down_at = None              # inject: the host's CAN interface goes down
+        self.unreadable = set()              # inject: parameters that read back as 0 (RS06 0x7028)
+        self.last_rx = None                  # time of the last frame for this motor (CAN timeout)
+        self.written = {}                    # parameter index -> raw value bytes
         self.dt = 1e-4
 
     def advance(self, t: float) -> None:
@@ -323,6 +356,9 @@ class SimMotor:
                 self.cmd = self.pending.popleft()[1]
             if self.fault_at and self.t >= self.fault_at[0]:
                 self.faults, self.enabled, self.mode = self.fault_at[1], False, rs.MODE_RESET
+            to = self.can_timeout()
+            if self.enabled and to and self.last_rx is not None and self.t - self.last_rx > to:
+                self.enabled, self.mode = False, rs.MODE_RESET
             if self.enabled:
                 q_ref, v_ref, kp, kd, tff = self.cmd
                 tau = kp * (q_ref - self.q) + kd * (v_ref - self.v) + tff
@@ -339,10 +375,15 @@ class SimMotor:
             self.q += h * self.v
             self.t += h
 
+    def can_timeout(self) -> float:
+        raw = self.written.get(rs.P_CAN_TIMEOUT)
+        return struct.unpack('<I', raw)[0] / 20000.0 if raw else 0.0
+
     def on_frame(self, t: float, cid: int, data: bytes) -> None:
         self.advance(t)
         if cid & 0xFF != self.id:  # target ID
             return
+        self.last_rx = t
         ct = rs.comm_type(cid)
         self.received.append(ct)
         if ct == rs.T_MOTION:
@@ -353,24 +394,29 @@ class SimMotor:
                    rs.u16_decode(cid >> 8 & 0xFFFF, r.torque_max))
             self.pending.append((t + self.delay, cmd))
             self.commands.append(cmd)
-            self.outbox.append((t + self.reply_latency, 'status', None))
+            self.outbox.append((t + self.reply_latency, 'status', self.mode))  # mode as handled
         elif ct == rs.T_STOP:
             self.enabled, self.mode = False, rs.MODE_RESET
             if data[0] == 1:
                 self.faults = 0
-            self.outbox.append((t + self.reply_latency, 'status', None))
+            self.outbox.append((t + self.reply_latency, 'status', self.mode))  # mode as handled
         elif ct == rs.T_ENABLE:
             if not self.faults:
                 self.enabled, self.mode = True, rs.MODE_RUNNING
                 self.cmd = (self.q, 0.0, 0.0, 0.0, 0.0)
-            self.outbox.append((t + self.reply_latency, 'status', None))
+            self.outbox.append((t + self.reply_latency, 'status', self.mode))  # mode as handled
         elif ct == rs.T_READ:
             index = struct.unpack('<H', data[:2])[0]
             val = {rs.P_VBUS: self.vbus, rs.P_MECH_POS: self.q, rs.P_MECH_VEL: self.v,
-                   rs.P_TORQUE_LIMIT: self.torque_limit}.get(index, 0.0)
+                   rs.P_TORQUE_LIMIT: self.torque_limit}.get(index, self.written.get(index, 0.0))
+            if index in self.unreadable:
+                val = 0.0
             self.outbox.append((t + self.reply_latency, 'param', (index, val)))
         elif ct == rs.T_WRITE:
             index = struct.unpack('<H', data[:2])[0]
+            if index in self.drop_writes:
+                return
+            self.written[index] = bytes(data[4:8])
             if index == rs.P_TORQUE_LIMIT:
                 self.torque_limit = struct.unpack('<f', data[4:8])[0]
         self.outbox.sort(key=lambda e: e[0])
@@ -384,7 +430,8 @@ class SimMotor:
         if self.mute or (self.mute_at is not None and t >= self.mute_at):
             return None
         if kind == 'status':
-            st = rs.Status(self.mode, self.faults, self.q, self.v,
+            mode = self.mode if payload is None else min(payload, self.mode)  # a later reset wins
+            st = rs.Status(mode, self.faults, self.q, self.v,
                            self.tau + self.rng.gauss(0.0, self.tau_noise), self.temp)
             cid, data = rs.status_frame(self.id, st, self.r)
         else:
@@ -398,6 +445,9 @@ class SimBus:
         self.sent = []
 
     def send(self, cid: int, data: bytes) -> None:
+        down = self.motor.bus_down_at
+        if down is not None and self.clock.now() >= down:
+            raise OSError(100, 'Network is down')
         self.sent.append((self.clock.now(), cid, bytes(data)))
         self.motor.on_frame(self.clock.now(), cid, bytes(data))
 
@@ -417,6 +467,51 @@ class SimBus:
         pass
 
 
+class SimMultiBus:
+    """Several simulated motors on one bus (mit_all.py and monitor.py with --sim)."""
+
+    def __init__(self, motors, clock: SimClock):
+        self.motors, self.clock = list(motors), clock
+        self.sent = []
+
+    def send(self, cid: int, data: bytes) -> None:
+        self.sent.append((self.clock.now(), cid, bytes(data)))
+        for m in self.motors:
+            m.on_frame(self.clock.now(), cid, bytes(data))
+
+    def recv(self, timeout: float):
+        deadline = self.clock.now() + max(timeout, 0.0)
+        while True:
+            pending = [(m.next_event(), i) for i, m in enumerate(self.motors) if m.next_event() is not None]
+            if not pending or min(pending)[0] > deadline:
+                self.clock.t = max(self.clock.t, deadline)
+                return None
+            te, i = min(pending)
+            self.clock.t = max(self.clock.t, te)
+            frame = self.motors[i].pop_event()
+            if frame is not None:
+                return frame
+
+    def close(self):
+        pass
+
+
+def wait_frames(buses, timeout: float):
+    """Frames from any of `buses` (one per CAN adapter): returns as soon as one has something,
+    with everything that bus has queued, or [] after `timeout`."""
+    if len(buses) == 1 or not all(hasattr(b, 'sock') for b in buses):
+        fr = buses[0].recv(timeout)
+        return [fr] if fr else []
+    import select
+    socks = {b.sock: b for b in buses}
+    ready, _, _ = select.select(list(socks), [], [], max(timeout, 0.0))
+    out = []
+    for s in ready:
+        while fr := socks[s].recv(0.0):
+            out.append(fr)
+    return out
+
+
 # ============================================================================= motor link
 class Link:
     def __init__(self, bus, clock, motor_id: int, model: str):
@@ -426,16 +521,21 @@ class Link:
     def send(self, frame) -> None:
         self.bus.send(*frame)
 
-    def read_param(self, index: int, timeout: float = 0.2):
+    def read_param_raw(self, index: int, timeout: float = 0.2):
+        """-> the 4 raw value bytes, or None."""
         self.send(rs.read_param(self.id, index))
         end = self.clock.now() + timeout
         while (left := end - self.clock.now()) > 0:
             fr = self.bus.recv(left)
             if fr and rs.comm_type(fr[0]) == rs.T_READ:
-                mid, idx, val = rs.decode_param_reply(fr[0], fr[1])
+                mid, idx, _ = rs.decode_param_reply(fr[0], fr[1])
                 if mid == self.id and idx == index:
-                    return val
+                    return bytes(fr[1][4:8])
         return None
+
+    def read_param(self, index: int, timeout: float = 0.2):
+        raw = self.read_param_raw(index, timeout)
+        return None if raw is None else struct.unpack('<f', raw)[0]
 
     def write(self, frame) -> None:
         self.send(frame)
@@ -455,6 +555,12 @@ class Link:
         if ct == rs.T_FAULT:
             return 'fault', bytes(data), t
         return None
+
+    def fresh_exchange(self, q, v, kp, kd, tau, timeout=0.05):
+        """exchange(), after dropping queued replies, so the status answers this command."""
+        while self.bus.recv(0.0):
+            pass
+        return self.exchange(q, v, kp, kd, tau, timeout)
 
     def exchange(self, q, v, kp, kd, tau, timeout=0.05):
         self.command(q, v, kp, kd, tau)
@@ -476,7 +582,49 @@ class Session:
     temp_start: float
 
 
+def timeout_trips(link: Link, a) -> bool:
+    """Enable with damping only, stay silent for 1.5x the CAN timeout, then check the drive has
+    left run mode by itself. The caller stops the drive either way."""
+    link.write(rs.enable(link.id))
+    st = link.fresh_exchange(0.0, 0.0, 0.0, a.damping_kd, 0.0)
+    if st is None or st.mode != rs.MODE_RUNNING:
+        return False
+    link.clock.sleep(1.5 * a.can_timeout)
+    st = link.fresh_exchange(0.0, 0.0, 0.0, a.damping_kd, 0.0)
+    return st is not None and st.mode != rs.MODE_RUNNING
+
+
+def position_problem(q: float, mech: float, r: rs.Ranges, margin: float = 1.5) -> str | None:
+    """Why absolute MIT position targets are unsafe from this angle, or None. The MIT angle must be
+    the true angle and well inside the +/-4 pi wire range."""
+    if abs(q - mech) > 0.05:
+        return (f'MIT position {q:.3f} != mechPos {mech:.3f}: wrong model/ranges, or the output is '
+                f'outside the +/-4 pi MIT range after a spinning test')
+    if abs(q) > r.position_max - margin:
+        return f'start angle {q:.2f} rad is too close to the +/-4 pi MIT range'
+    return None
+
+
 def start(link: Link, a, needs_position: bool) -> Session:
+    vbus, mech = configure(link, a)
+    link.write(rs.enable(link.id))
+    # Replies to the setup frames (mode 0) may still be queued; this one must answer the enable.
+    st = link.fresh_exchange(0.0, 0.0, 0.0, a.damping_kd, 0.0)
+    if st is None:
+        raise SetupError('no status reply to the first MIT command')
+    if st.faults or st.mode != rs.MODE_RUNNING:
+        raise SetupError(f'motor not running after enable: mode {st.mode}, faults {st.fault_names()}')
+    # Position tests send absolute MIT targets. Velocity tests (kp = 0) don't care.
+    if needs_position and (why := position_problem(st.q, mech, link.r)):
+        raise SetupError(f'{why}. Run any test with --rewind-only (turns it back to 0), or '
+                         f'power-cycle the motor.')
+    return Session(st.q, vbus, mech, st.temp)
+
+
+def configure(link: Link, a):
+    """Everything before enabling: check the motor answers, MIT mode, the drive's torque limit and
+    CAN timeout (both read back, or the timeout checked by behaviour). Leaves the drive stopped.
+    Returns (bus voltage, mechPos)."""
     vbus = link.read_param(rs.P_VBUS)
     mech = link.read_param(rs.P_MECH_POS)
     if vbus is None or mech is None:
@@ -487,23 +635,24 @@ def start(link: Link, a, needs_position: bool) -> Session:
     link.write(rs.write_f32(link.id, rs.P_TORQUE_LIMIT, a.torque_limit))
     link.write(rs.write_u32(link.id, rs.P_CAN_TIMEOUT, rs.can_timeout_counts(a.can_timeout)))
     link.write(rs.active_report(link.id, False))  # every command gets a reply; no extra traffic
-    link.write(rs.enable(link.id))
-    st = link.exchange(0.0, 0.0, 0.0, a.damping_kd, 0.0)
-    if st is None:
-        raise SetupError('no status reply to the first MIT command')
-    if st.faults or st.mode != rs.MODE_RUNNING:
-        raise SetupError(f'motor not running after enable: mode {st.mode}, faults {st.fault_names()}')
-    # Position tests send absolute MIT targets, so the MIT angle must be the true angle and
-    # well inside the +/-4 pi wire range. Velocity tests (kp = 0) don't care.
-    if needs_position:
-        if abs(st.q - mech) > 0.05:
-            raise SetupError(f'MIT position {st.q:.3f} != mechPos {mech:.3f}: wrong model/ranges, or '
-                             f'the output is outside the +/-4 pi MIT range after a spinning test. '
-                             f'Run any test with --rewind-only, or power-cycle the motor.')
-        if abs(st.q) > link.r.position_max - 1.5:
-            raise SetupError(f'start angle {st.q:.2f} rad is too close to the +/-4 pi MIT range; '
-                             f'run with --rewind-only (turns it back to 0) or power-cycle')
-    return Session(st.q, vbus, mech, st.temp)
+    # A drive sent frames faster than it handles them drops some silently (seen on an RS03), so
+    # confirm the two safety settings actually landed before enabling.
+    tl = link.read_param(rs.P_TORQUE_LIMIT)
+    to = link.read_param_raw(rs.P_CAN_TIMEOUT)
+    want_to = rs.can_timeout_counts(a.can_timeout)
+    if tl is None or abs(tl - a.torque_limit) > 1e-3:
+        raise SetupError(f'torque limit reads back {tl} instead of {a.torque_limit:g} Nm; not enabling')
+    got = None if to is None else struct.unpack('<I', to)[0]
+    if got != want_to:
+        # Some firmware reads this register back as 0 although the write takes effect (RS06 m25).
+        # Then check the behaviour instead: it must drop out of run mode on its own.
+        if not timeout_trips(link, a):
+            raise SetupError(f'CAN timeout reads back {got} instead of {want_to} counts, and the drive '
+                             f'kept running through {1.5 * a.can_timeout:g} s of silence; not enabling')
+        print(f'  (CAN timeout reads back {got}; checked by behaviour instead: the drive stopped '
+              f'itself after {1.5 * a.can_timeout:g} s of silence)', flush=True)
+        link.write(rs.stop(link.id, clear_faults=True))
+    return vbus, mech
 
 
 def rewind(link: Link, clock, a, target: float, speed: float = 2.0, timeout: float = 30.0) -> bool:
@@ -518,7 +667,10 @@ def rewind(link: Link, clock, a, target: float, speed: float = 2.0, timeout: flo
         err = target - m
         if abs(err) < 0.1:
             return True
-        st = link.exchange(0.0, max(-speed, min(speed, 3.0 * err)), 0.0, kd, 0.0, timeout=0.02)
+        # At least 1 Nm of kd drive: a slower v_ref can sit below breakaway friction and stall
+        # short of the target (RS03 m21 needs ~0.57 Nm to break away).
+        v = math.copysign(min(speed, max(abs(3.0 * err), 1.0 / kd)), err)
+        st = link.exchange(0.0, v, 0.0, kd, 0.0, timeout=0.02)
         if st is None or st.faults or st.mode != rs.MODE_RUNNING:
             return False
         clock.sleep(0.01)
@@ -594,7 +746,7 @@ def finish(link: Link, clock, a) -> float | None:
             if st:
                 temp = st.temp
             clock.sleep(0.01)
-    except Abort:
+    except (Abort, OSError):
         pass
     finally:
         try:
@@ -633,6 +785,25 @@ def percentile(xs, p):
     return s[min(len(s) - 1, int(p / 100.0 * len(s)))]
 
 
+def report_spin(prof: Profile, log) -> None:
+    """Measured speed and torque over the middle of the constant-velocity hold."""
+    p = prof.params
+    t0 = log.get('t0')
+    if t0 is None or not log['fb']:
+        return
+    lo, hi = p['ramp'] + 0.25 * p['hold'], p['ramp'] + 0.9 * p['hold']   # fb times are run-relative
+    rows = [r for r in log['fb'] if lo <= r[0] <= hi]
+    if not rows:
+        return
+    v = sum(r[3] for r in rows) / len(rows)
+    tau = sum(r[4] for r in rows) / len(rows)
+    # Integrate velocity: the MIT position wraps at +/-4 pi, so end - start is wrong after ~2 turns.
+    fb = log['fb']
+    turns = sum(b[3] * (b[0] - a[0]) for a, b in zip(fb, fb[1:])) / (2 * math.pi)
+    print(f'[spin] commanded {p["v"]:+.2f} rad/s, measured {v:+.2f} rad/s ({100 * v / p["v"]:.0f}%), '
+          f'torque {tau:+.3f} Nm (= friction at this speed), {turns:+.2f} turns in total', flush=True)
+
+
 def one_run(test: str, a, model: str, make_link) -> bool:
     prof = build_profile(test, model, a)
     bus, clock, link, sim_motor = make_link()
@@ -654,7 +825,9 @@ def one_run(test: str, a, model: str, make_link) -> bool:
         print(f'[{prof.name}] start angle {sess.q_start:+.3f} rad, bus {sess.vbus_start:.1f} V, '
               f'{sess.temp_start:.1f} C. Running {prof.duration:.0f} s ...', flush=True)
         reason = run_profile(link, clock, prof, sess, a, log)
-        if prof.max_excursion is None and reason is None:
+        if prof.name == 'spin':
+            report_spin(prof, log)
+        if prof.max_excursion is None and reason is None and prof.params.get('rewind', True):
             ok = rewind(link, clock, a, target=0.0)
             meta['rewound'] = ok
             print(f'[{prof.name}] rewind to 0 rad: '
@@ -663,6 +836,11 @@ def one_run(test: str, a, model: str, make_link) -> bool:
         reason = f'setup: {e}'
     except Abort as e:
         reason = str(e)
+    except OSError as e:  # the adapter dropped off USB, or the interface went down
+        reason = f'CAN interface error: {e}'
+        print(f'[{prof.name}] {reason}. If "Network is down": the USB-CAN adapter reconnected (check '
+              f'dmesg), so bring it up with  sudo ip link set {a.iface} up type can bitrate 1000000. '
+              f'The motor stops itself after the {a.can_timeout:g} s CAN timeout.', flush=True)
     finally:
         temp_end = finish(link, clock, a)
         try:
@@ -694,10 +872,11 @@ def one_run(test: str, a, model: str, make_link) -> bool:
 def parse_args(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split('\n\n')[0],
                                  formatter_class=argparse.RawDescriptionHelpFormatter, epilog=__doc__)
-    ap.add_argument('test', choices=['friction', 'torque-chirp', 'pos-chirp', 'step', 'top-speed', 'all'])
+    ap.add_argument('test', choices=['friction', 'torque-chirp', 'pos-chirp', 'step', 'top-speed', 'spin',
+                                     'all'])
     ap.add_argument('--id', type=int, required=True, help='motor CAN ID')
     ap.add_argument('--model', choices=sorted(rs.RANGES), help='default: from the ID (11-15, 21-25)')
-    ap.add_argument('--iface', default='can_usb')
+    ap.add_argument('--iface', default='auto', help='CAN interface; auto = the one the motor answers on')
     ap.add_argument('--out', default='sysid_logs')
     ap.add_argument('--rate', type=float, default=500.0, help='command rate, Hz')
     ap.add_argument('--torque-limit', type=float, help='Nm, written to the drive. Default ~20%% of peak')
@@ -712,12 +891,19 @@ def parse_args(argv=None):
     ap.add_argument('--f1', type=float)
     ap.add_argument('--duration', type=float)
     ap.add_argument('--amp', type=float, help='rad (chirps)')
+    ap.add_argument('--j-guess', type=float,
+                    help='torque-chirp: total inertia it is sized for, kg m^2 (motor + any load). '
+                         'Default: the measured motor value for the model')
     ap.add_argument('--corner', type=float, default=5.0, help='pos-chirp amplitude roll-off, Hz')
     ap.add_argument('--hold-rate', type=float, help='pos-chirp: hold targets at this rate (policy: 50)')
     ap.add_argument('--hold', type=float, help='s per level (friction, step)')
     ap.add_argument('--speeds', type=float, nargs='+', default=[0.05, 0.1, 0.2, 0.5, 1, 2, 4, 8])
     ap.add_argument('--amps', type=float, nargs='+', default=[0.1, 0.3])
     ap.add_argument('--vmax', type=float, help='top-speed target, rad/s')
+    ap.add_argument('--speed', type=float, help='spin: rad/s (> 0)')
+    ap.add_argument('--dir', choices=['+', '-', 'pos', 'neg', 'positive', 'negative'],
+                    help='spin: direction (motor frame, + = increasing angle)')
+    ap.add_argument('--ramp', type=float, default=1.0, help='spin: s to reach the speed and to stop')
     ap.add_argument('--note', default='', help='free text stored in meta.json')
     ap.add_argument('--yes', action='store_true', help='skip the confirmation prompt')
     ap.add_argument('--rewind-only', action='store_true',
@@ -736,13 +922,65 @@ def parse_args(argv=None):
         ap.error(f'--torque-limit must be in (0, {rs.RANGES[a.model].torque_max:g}]')
     if not 0 < a.can_timeout <= 10:
         ap.error('--can-timeout must be in (0, 10] s')
+    if a.test == 'spin':
+        if a.speed is None or a.dir is None:
+            ap.error('spin needs --speed (rad/s) and --dir (+ or -)')
+        cap = spin_speed_cap(a.model, a.bus_voltage)
+        if not 0 < a.speed <= cap:
+            ap.error(f'--speed must be in (0, {cap:.1f}] rad/s for {a.model} at {a.bus_voltage:g} V')
+        if not 0 < (a.duration or 5.0) <= 120 or not 0.1 <= a.ramp <= 10:
+            ap.error('spin: --duration in (0, 120] s, --ramp in [0.1, 10] s')
     return a
+
+
+def can_interfaces():
+    """CAN interfaces that are up (ARPHRD_CAN = 280), USB adapters first."""
+    out = []
+    for name in sorted(os.listdir('/sys/class/net')):
+        try:
+            with open(f'/sys/class/net/{name}/type') as f:
+                if f.read().strip() != '280':
+                    continue
+            with open(f'/sys/class/net/{name}/operstate') as f:
+                state = f.read().strip()
+        except OSError:
+            continue
+        if state != 'down':
+            out.append(name)
+    return sorted(out, key=lambda n: (not n.startswith('can_'), n))
+
+
+def find_interface(motor_id: int, model: str) -> str:
+    """The CAN interface on which `motor_id` answers a parameter read (with two adapters, one per
+    leg, it is on exactly one of them)."""
+    names = can_interfaces()
+    for name in names:
+        clock = RealClock()
+        try:
+            bus = SocketCanBus(name, clock)
+        except (OSError, SetupError):
+            continue
+        try:
+            if Link(bus, clock, motor_id, model).read_param(rs.P_VBUS, timeout=0.1) is not None:
+                return name
+        except OSError:   # a bus with nothing on it can refuse the frame (no buffer space)
+            pass
+        finally:
+            bus.close()
+    raise SetupError(f'motor {motor_id} does not answer on any CAN interface that is up ({", ".join(names) or "none"}). '
+                     f'Run tools/jetson/can_status.sh to see each adapter and its motors.')
 
 
 def main(argv=None, sim_motor_hook=None) -> int:
     a = parse_args(argv)
     model = a.model
     tests = ALL_SEQUENCE if a.test == 'all' else (a.test,)
+    if a.iface == 'auto' and not a.sim:
+        try:
+            a.iface = find_interface(a.id, model)
+        except SetupError as e:
+            print(f'cannot start: {e}')
+            return 2
     print(f'Motor {a.id} ({model}) on {"SIMULATED bus" if a.sim else a.iface}, drive torque limit '
           f'{a.torque_limit:g} Nm, CAN timeout {a.can_timeout:g} s, {a.rate:g} Hz:')
     for t in tests:
