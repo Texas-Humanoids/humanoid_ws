@@ -1,7 +1,7 @@
 # th_foxglove
 
 A live dashboard for the walker in [Foxglove](https://foxglove.dev): a 3D model
-that moves with the real joints, the camera, battery and power, robot state,
+that moves with the real joints, the camera, battery and estimated current, robot state,
 motor health, and the log. It works the same on the robot and in the MuJoCo sim.
 
 [`layouts/walker_v2.json`](layouts/walker_v2.json) is the ready-made layout:
@@ -53,21 +53,21 @@ nothing extra to run on the robot.
 
 | Panel | Source | What it tells you |
 |---|---|---|
-| Robot | `/robot_description`, `/tf` | The WalkerV2 model with every joint at its measured angle. The camera follows `base_smooth` (position and heading, low-passed ~0.8 s), so it glides with the robot instead of jolting each step. In sim the base follows MuJoCo's ground truth; on hardware it tilts with the IMU at a fixed height (no position estimate yet). |
+| Robot | `/robot_description`, `/tf` | The WalkerV2 model with every joint at its measured angle. The saved camera starts centered behind the robot and follows `base_smooth` (position and heading, low-passed ~0.8 s), so it glides with the robot instead of jolting each step. In sim the base follows MuJoCo's ground truth; on hardware it tilts with the IMU at a fixed height (no position estimate yet). |
 | Command radar | `/dashboard/command` | Top-down and fixed in place; the robot's forward is up. Blue: commanded velocity. Green: actual walking velocity, averaged over two steps so step sway cancels (sim only for now). Orange arc: turn command. Rings at 0.25 and 0.5 m/s. |
 | Lean level | `/dashboard/lean` | Top-down bubble level, fixed in place: the dot sits where the body leans (forward = up, left = left), with a 2 s trail. Green under 10°, yellow under 25°, red beyond; the red ring is the 57° fall cutoff. |
 | State, Health | `/policy_bridge/mode`, `/robot/health` | WALK / STAND / DISARMED, and OK / WARNING / FAULT for the motors, IMU and battery (details on the System tab) |
-| Battery gauge | `/robot/battery_voltage` | 30-42 V for the 10S pack (empty in sim) |
-| Current gauges | `/robot/current_*` | Estimated battery current, total (BMS limit 30 A) and per leg. See below. |
+| Battery dial | `/dashboard/telemetry` | 30-42 V for the 10S pack, with a numeric voltage readout. NO DATA in sim. |
+| Current dials | `/dashboard/telemetry` | Numeric estimates in A: total (30 A BMS) and per leg. Uses `/robot/current_*` calculations. See below. |
 | Camera | `/camera/image/compressed` | The bench camera ([tools/bench_camera](../../tools/bench_camera/README.md)) |
 
 **Joints**: one plot per joint (hip pitch, roll, yaw, knee, ankle), each with
-the left (blue) and right (orange) leg, measured as a solid line and the policy
-target as a thin light line. If measured does not follow target, that joint's
+the left (blue) and right (orange) leg in degrees, measured as a solid line and
+the policy target as a thin light line. Compact legends label each trace. If measured does not follow target, that joint's
 gains, calibration or motor are the suspects. Plus the state history.
 
 **System**: battery voltage over the last 5 minutes, estimated current (total
-and per leg), knee and ankle torque, Jetson CPU and the hottest motor, the
+and per leg), knee and ankle torque, separate charts for CPU load (%) and hottest motor temperature (°C), the
 Health table (one row per motor with faults, temperature, torque and bus
 voltage), and the log (warnings and errors only).
 
@@ -77,11 +77,20 @@ The motors report torque, speed and supply voltage but not the current they
 draw from the battery, and RobStride does not publish the winding resistance
 or torque constant needed to compute it. So the dashboard estimates it from
 the power the motors deliver: `sum(|torque x speed|) / (voltage x 0.85)`.
-Braking counts as draw too, so it errs high, the safe side for the 30 A BMS
-limit. It misses holding current at standstill and everything else on the
-pack; set `battery.base_current` in the robot yaml for the Jetson and
+Braking counts as draw too. This is not an upper bound on battery current:
+it misses holding current at standstill and everything else on the pack; set `battery.base_current` in the robot yaml for the Jetson and
 converters once measured. A current sensor on the battery lead would make it a
-real measurement.
+real measurement. `/battery.current` stays unknown (NaN) until a measurement
+is available; the separate `/robot/current_*` topics are estimates.
+
+Each leg estimate requires fresh torque and speed from every motor in that leg.
+Missing or invalid feedback produces NO DATA instead of a misleading partial
+sum; the total requires both legs. When bus voltage is unavailable, the dials
+label the nominal 36 V assumption. The displayed number can exceed the dial
+range, with an explicit warning. Dial markers expire after one second if the
+monitor stops. Voltage and percentage topics publish NaN when readings expire.
+A stopped WebSocket connection should always be checked in Foxglove before a
+presentation; panels can retain their last frame when the data source stops.
 
 ## Battery
 
@@ -122,7 +131,7 @@ walk across the grid.
 ## Recordings
 
 `record:=true` now also records `/joint_states`, `/tf`, `/robot_description`,
-`/battery`, `/diagnostics`, `/robot/*` and `/rosout`. Open the bag folder's
+`/battery`, `/diagnostics`, `/robot/*`, `/dashboard/*` and `/rosout`. Open the bag folder's
 `.mcap` file in Foxglove (*Open local file*) and the same layout replays the run.
 The camera is not recorded, to keep bags small.
 
@@ -155,8 +164,35 @@ ros2 launch th_foxglove foxglove.launch.py \
   (`colcon build --packages-up-to th_bringup` does it).
 - **No camera.** Check `http://humanoids:8080/stream` in a browser; if that
   works, the `mjpeg_camera` log says why it can't connect.
-- **Laggy over Wi-Fi.** Lower `camera_rate`, or close the Motors tab (each plot
+- **Laggy over Wi-Fi.** Lower `camera_rate`, or close the Joints tab (each plot
   subscribes to its topics).
 - **Battery shows nothing.** On hardware, see whether
   `ros2 topic echo /left_hip_pitch/motor/bus_voltage` prints; in sim it is
   expected.
+
+## Editing the layout
+
+The JSON is generated from `tools/make_layout.py`. From the repository root:
+
+```bash
+python3 src/th_foxglove/tools/make_layout.py src/th_foxglove/layouts/walker_v2.json
+```
+
+Import the regenerated file in Foxglove. The Overview opens first. The dials
+use standard ROS markers, so no Foxglove extension is needed. Rebuild
+`th_foxglove` and restart its monitor when updating marker code.
+
+The robot view follows the smoothed heading frame, with a 0.5 m target height,
+2.4 m distance, and rear azimuth. If you pan away, hover over that 3D panel and
+press **1** to recenter on the followed frame. Reimport the layout to restore
+the saved rear angle as well.
+
+Before presenting on hardware, check joint directions against the robot, IMU
+lean direction, voltage against a meter, and the actual camera stream. The
+simulation cannot verify those hardware measurements. Record a short MCAP run
+with `record:=true` for a reproducible presentation backup; camera images are
+not included in that recording.
+
+Command radar readouts use compact tuples: blue `cmd (vx, vy, wz)` and green
+`actual (vx, vy)`. The first two entries are forward / left velocity in m/s;
+`wz` is turn rate in rad/s. Lean reads `tilt° (forward, left)°`.

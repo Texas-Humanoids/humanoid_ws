@@ -210,7 +210,8 @@ def launch_pipeline(context):
             cmd=['ros2', 'bag', 'record', '--regex',
                  '/policy/.*|/policy_bridge/.*|/cmd_vel|/gamepad/.*|' +
                  arg('imu_topic') + '|/.*/motor/.*|/joint_states|/tf|/tf_static|'
-                 '/robot_description|/battery|/diagnostics|/robot/.*|/mujoco_sim/.*|/rosout'],
+                 '/robot_description|/battery|/diagnostics|/robot/.*|/dashboard/.*|'
+                 '/mujoco_sim/.*|/rosout'],
             output='screen'))
     if arg('foxglove') == 'true':
         actions.append(IncludeLaunchDescription(

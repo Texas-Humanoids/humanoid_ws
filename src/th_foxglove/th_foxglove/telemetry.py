@@ -50,10 +50,14 @@ def battery_current(torques, velocities, volts, efficiency=0.85):
 
     The motors report torque and speed but not their input current, and RobStride does not
     publish the winding resistance or torque constant needed for copper losses. So this is
-    sum(|torque * speed|) / (volts * efficiency): braking counts as draw too, which errs
-    high (the safe side for a current limit); holding torque at standstill reads as ~0.
+    sum(|torque * speed|) / (volts * efficiency). Braking counts as draw, but holding
+    losses are absent: this is not an upper bound or a replacement for a current sensor.
     """
-    if not math.isfinite(volts) or volts <= 0:
+    # A partial sum looks like a valid low load. Require every configured motor's pair.
+    if (not torques or len(torques) != len(velocities) or
+            any(v is None or not math.isfinite(v) for v in (*torques, *velocities)) or
+            not math.isfinite(volts) or volts <= 0 or
+            not math.isfinite(efficiency) or not 0 < efficiency <= 1):
         return math.nan
     return mechanical_power(torques, velocities) / (volts * efficiency)
 

@@ -158,3 +158,76 @@ def test_health_summary():
     assert health_summary(ok + [status('motor: b', ERROR, 'overtemp')]) == 'FAULT'
     assert health_summary(ok + [status('motor: b', STALE, 'no feedback')]) == 'WARNING'
     assert health_summary([sim_battery]) == 'NO DATA'
+
+
+@pytest.mark.parametrize('torques,velocities', [
+    ([], []), ([1.0, None], [1.0, 1.0]), ([1.0], [None]),
+    ([math.nan], [1.0]), ([1.0], [math.inf]), ([1.0, 1.0], [1.0]),
+])
+def test_current_does_not_present_missing_feedback_as_low_load(torques, velocities):
+    assert math.isnan(t.battery_current(torques, velocities, 36.0))
+
+
+def test_telemetry_dials_missing_and_out_of_range():
+    from builtin_interfaces.msg import Time
+    from visualization_msgs.msg import Marker
+    from th_foxglove.dashboard import telemetry_markers
+    msg = telemetry_markers('dashboard', Time(), math.nan,
+                            {'left': math.nan, 'right': 2.34, 'total': 35.67}, nominal=True)
+    added = [m for m in msg.markers if m.action == Marker.ADD]
+    text = [m.text for m in added if m.type == Marker.TEXT_VIEW_FACING]
+    assert text.count('NO DATA') == 2
+    assert '35.7 A' in text and '2.3 A' in text
+    assert 'OUTSIDE DIAL RANGE' in text
+    # Only available measurements get needle hubs; invalid needles do not sit at zero.
+    assert len([m for m in added if m.type == Marker.SPHERE]) == 2
+    assert all(m.lifetime.sec == 1 for m in added)
+    assert all(m.action != Marker.DELETEALL for m in msg.markers)
+    recovered = telemetry_markers('dashboard', Time(), 38.0,
+                                  {'left': 1.0, 'right': 2.0, 'total': 3.0})
+    assert [m.id for m in msg.markers] == [m.id for m in recovered.markers]
+    # Range colors and arc positions stay fixed through value changes and dropouts.
+    arcs = [m for m in msg.markers if m.type == Marker.LINE_STRIP and m.scale.x == 0.045]
+    recovered_arcs = [m for m in recovered.markers
+                      if m.type == Marker.LINE_STRIP and m.scale.x == 0.045]
+    assert len(arcs) == len(recovered_arcs) == 12
+    assert [(m.points, m.color) for m in arcs] == [
+        (m.points, m.color) for m in recovered_arcs]
+
+
+def test_summary_clears_stale_voltage_and_partial_current():
+    from th_foxglove.robot_monitor import RobotMonitor, Motor
+
+    class Publisher:
+        def publish(self, msg):
+            self.last = msg
+
+    class Stamp:
+        def to_msg(self):
+            from builtin_interfaces.msg import Time
+            return Time()
+
+    class Clock:
+        def now(self):
+            return Stamp()
+
+    # Exercise the real summary callback without a ROS executor or live topics.
+    from types import SimpleNamespace
+    monitor = SimpleNamespace(
+        cells=10, nominal_voltage=36.0, efficiency=0.85, base_current=0.0,
+        motors=[Motor('left_a', 'left'), Motor('right_a', 'right')],
+        voltage=lambda: math.nan, get_clock=lambda: Clock(),
+        base_pose=lambda: ((0, 0, 0), (1, 0, 0, 0), 'none'),
+        current_pubs={s: Publisher() for s in ('left', 'right', 'total')})
+    for name in ('voltage', 'percent', 'power', 'battery', 'temperature', 'telemetry'):
+        setattr(monitor, name + '_pub', Publisher())
+    monitor.motors[0].torque.set(3.0)
+    monitor.motors[0].velocity.set(2.0)
+    RobotMonitor.publish_summary(monitor)
+    assert math.isnan(monitor.voltage_pub.last.data)
+    assert math.isnan(monitor.percent_pub.last.data)
+    assert monitor.current_pubs['left'].last.data > 0
+    assert math.isnan(monitor.current_pubs['right'].last.data)
+    assert math.isnan(monitor.current_pubs['total'].last.data)
+    assert math.isnan(monitor.power_pub.last.data)
+    assert math.isnan(monitor.battery_pub.last.current)

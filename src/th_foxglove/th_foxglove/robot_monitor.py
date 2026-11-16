@@ -167,6 +167,7 @@ class RobotMonitor(Node):
         self.static_tf.sendTransform(d)
         self.command_markers_pub = self.create_publisher(MarkerArray, '/dashboard/command', 10)
         self.lean_markers_pub = self.create_publisher(MarkerArray, '/dashboard/lean', 10)
+        self.telemetry_pub = self.create_publisher(MarkerArray, '/dashboard/telemetry', 10)
         self.create_timer(0.05, self.publish_views)
         self.imu_count_at = (0, time.monotonic())
         self.imu_rate = 0.0
@@ -262,32 +263,32 @@ class RobotMonitor(Node):
         battery.power_supply_technology = BatteryState.POWER_SUPPLY_TECHNOLOGY_LION
         battery.power_supply_status = BatteryState.POWER_SUPPLY_STATUS_DISCHARGING
         battery.present = math.isfinite(volts)
-        if math.isfinite(volts):
-            self.voltage_pub.publish(Float64(data=round(volts, 1)))
-        if math.isfinite(battery.percentage):
-            self.percent_pub.publish(Float64(data=float(round(battery.percentage * 100))))
+        self.voltage_pub.publish(Float64(data=round(volts, 1)))
+        percent = round(battery.percentage * 100, 0)
+        self.percent_pub.publish(Float64(data=percent))
 
         torques = [m.torque.get(0.5) for m in self.motors]
         velocities = [m.velocity.get(0.5) for m in self.motors]
-        if any(t is not None for t in torques):
-            self.power_pub.publish(
-                Float64(data=float(round(telemetry.mechanical_power(torques, velocities)))))
-            bus = volts if math.isfinite(volts) else self.nominal_voltage
-            amps = {}
-            for side in ('left', 'right'):
-                pick = [i for i, m in enumerate(self.motors) if m.joint.startswith(side + '_')]
-                amps[side] = telemetry.battery_current(
-                    [torques[i] for i in pick], [velocities[i] for i in pick], bus,
-                    self.efficiency)
-            amps['total'] = amps['left'] + amps['right'] + self.base_current
-            for side, value in amps.items():
-                self.current_pubs[side].publish(Float64(data=round(value, 1)))
-            battery.current = -float(amps['total'])  # ROS: negative while discharging
+        bus = volts if math.isfinite(volts) else self.nominal_voltage
+        amps = {}
+        for side in ('left', 'right'):
+            pick = [i for i, m in enumerate(self.motors) if m.joint.startswith(side + '_')]
+            amps[side] = telemetry.battery_current(
+                [torques[i] for i in pick], [velocities[i] for i in pick], bus,
+                self.efficiency)
+        amps['total'] = amps['left'] + amps['right'] + self.base_current
+        for side, value in amps.items():
+            self.current_pubs[side].publish(Float64(data=round(value, 1)))
+        power = telemetry.battery_current(torques, velocities, 1.0, 1.0)
+        self.power_pub.publish(Float64(data=round(power, 0)))
+        # Keep BatteryState.current unknown: this topic is a measurement, not our estimate.
+        self.telemetry_pub.publish(dashboard.telemetry_markers(
+            'dashboard', battery.header.stamp, volts, amps, nominal=not math.isfinite(volts)))
         self.battery_pub.publish(battery)
         temperatures = [m.temperature.get(3.0) for m in self.motors]
-        temperatures = [t for t in temperatures if t is not None]
-        if temperatures:
-            self.temperature_pub.publish(Float64(data=round(float(max(temperatures)), 1)))
+        temperatures = [t for t in temperatures if t is not None and math.isfinite(t)]
+        hottest = max(temperatures, default=math.nan)
+        self.temperature_pub.publish(Float64(data=round(float(hottest), 1)))
         _, q, source = self.base_pose()
         if source != 'none':
             forward, left = telemetry.lean(q)

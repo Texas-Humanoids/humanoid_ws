@@ -8,7 +8,7 @@
         "perspective": true,
         "distance": 2.4,
         "phi": 72,
-        "thetaOffset": 45,
+        "thetaOffset": 90,
         "targetOffset": [
           0,
           0,
@@ -104,6 +104,9 @@
         },
         "/dashboard/lean": {
           "visible": false
+        },
+        "/dashboard/telemetry": {
+          "visible": false
         }
       },
       "layers": {
@@ -143,7 +146,7 @@
       "imageMode": {}
     },
     "3D!command": {
-      "foxglovePanelTitle": "Command (blue) vs actual (green), turn (orange)",
+      "foxglovePanelTitle": "Command \u00b7 blue (vx, vy, wz) / green (vx, vy)",
       "followTf": "dashboard",
       "followMode": "follow-pose",
       "cameraState": {
@@ -234,6 +237,12 @@
         "/dashboard/command": {
           "visible": true
         },
+        "/dashboard/lean": {
+          "visible": false
+        },
+        "/dashboard/telemetry": {
+          "visible": false
+        },
         "/robot_description": {
           "visible": false
         }
@@ -252,7 +261,7 @@
       "imageMode": {}
     },
     "3D!lean": {
-      "foxglovePanelTitle": "Lean (bubble level; red = fall cutoff)",
+      "foxglovePanelTitle": "Lean \u00b7 tilt / (forward, left) \u00b0",
       "followTf": "dashboard",
       "followMode": "follow-pose",
       "cameraState": {
@@ -340,8 +349,14 @@
         }
       },
       "topics": {
+        "/dashboard/command": {
+          "visible": false
+        },
         "/dashboard/lean": {
           "visible": true
+        },
+        "/dashboard/telemetry": {
+          "visible": false
         },
         "/robot_description": {
           "visible": false
@@ -462,106 +477,153 @@
         }
       ]
     },
-    "Gauge!battery": {
-      "foxglovePanelTitle": "Battery (30-42 V)",
-      "path": "/robot/battery_voltage.data",
-      "minValue": 30,
-      "maxValue": 42,
-      "colorMap": "red-yellow-green",
-      "colorMode": "colormap",
-      "gradient": [
-        "#0000ff",
-        "#ff00ff"
-      ],
-      "reverse": false,
-      "style": "dial",
-      "showTicks": true,
-      "tickInterval": 2,
-      "reverseDirection": false
-    },
-    "Gauge!current": {
-      "foxglovePanelTitle": "Total current, est. (A; BMS 30)",
-      "path": "/robot/current_total.data",
-      "minValue": 0,
-      "maxValue": 30,
-      "colorMap": "red-yellow-green",
-      "colorMode": "colormap",
-      "gradient": [
-        "#0000ff",
-        "#ff00ff"
-      ],
-      "reverse": true,
-      "style": "dial",
-      "showTicks": true,
-      "tickInterval": 5,
-      "reverseDirection": false
-    },
-    "Gauge!left": {
-      "foxglovePanelTitle": "Left leg, est. (A)",
-      "path": "/robot/current_left.data",
-      "minValue": 0,
-      "maxValue": 20,
-      "colorMap": "red-yellow-green",
-      "colorMode": "colormap",
-      "gradient": [
-        "#0000ff",
-        "#ff00ff"
-      ],
-      "reverse": true,
-      "style": "dial",
-      "showTicks": true,
-      "tickInterval": 5,
-      "reverseDirection": false
-    },
-    "Gauge!right": {
-      "foxglovePanelTitle": "Right leg, est. (A)",
-      "path": "/robot/current_right.data",
-      "minValue": 0,
-      "maxValue": 20,
-      "colorMap": "red-yellow-green",
-      "colorMode": "colormap",
-      "gradient": [
-        "#0000ff",
-        "#ff00ff"
-      ],
-      "reverse": true,
-      "style": "dial",
-      "showTicks": true,
-      "tickInterval": 5,
-      "reverseDirection": false
+    "3D!telemetry": {
+      "foxglovePanelTitle": "Battery & current estimates",
+      "followTf": "dashboard",
+      "followMode": "follow-pose",
+      "cameraState": {
+        "perspective": false,
+        "distance": 3.1,
+        "phi": 0.01,
+        "thetaOffset": 90.0,
+        "targetOffset": [
+          0,
+          0,
+          0
+        ],
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "targetOrientation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "fovy": 45,
+        "near": 0.01,
+        "far": 5000
+      },
+      "scene": {
+        "enableStats": false,
+        "backgroundColor": "#1d2026",
+        "transforms": {
+          "showLabel": false,
+          "axisSize": 0.01,
+          "lineWidth": 0
+        }
+      },
+      "transforms": {
+        "frame:world": {
+          "visible": false
+        },
+        "frame:base_link": {
+          "visible": false
+        },
+        "frame:base_footprint": {
+          "visible": false
+        },
+        "frame:base_smooth": {
+          "visible": false
+        },
+        "frame:dashboard": {
+          "visible": false
+        },
+        "frame:imu_link": {
+          "visible": false
+        },
+        "frame:left_hip_pitch_link": {
+          "visible": false
+        },
+        "frame:left_hip_roll_link": {
+          "visible": false
+        },
+        "frame:left_thigh_link": {
+          "visible": false
+        },
+        "frame:left_shank_link": {
+          "visible": false
+        },
+        "frame:left_foot_link": {
+          "visible": false
+        },
+        "frame:right_hip_pitch_link": {
+          "visible": false
+        },
+        "frame:right_hip_roll_link": {
+          "visible": false
+        },
+        "frame:right_thigh_link": {
+          "visible": false
+        },
+        "frame:right_shank_link": {
+          "visible": false
+        },
+        "frame:right_foot_link": {
+          "visible": false
+        }
+      },
+      "topics": {
+        "/dashboard/command": {
+          "visible": false
+        },
+        "/dashboard/lean": {
+          "visible": false
+        },
+        "/dashboard/telemetry": {
+          "visible": true
+        },
+        "/robot_description": {
+          "visible": false
+        }
+      },
+      "layers": {},
+      "publish": {
+        "type": "point",
+        "poseTopic": "/move_base_simple/goal",
+        "pointTopic": "/clicked_point",
+        "poseEstimateTopic": "/initialpose",
+        "poseEstimateXDeviation": 0.5,
+        "poseEstimateYDeviation": 0.5,
+        "poseEstimateThetaDeviation": 0.26179939
+      },
+      "synchronize": false,
+      "imageMode": {}
     },
     "Plot!hip_pitch": {
-      "foxglovePanelTitle": "Hip pitch (rad)",
+      "foxglovePanelTitle": "Hip pitch (deg)",
       "paths": [
         {
-          "value": "/joint_states.position[0]",
+          "value": "/joint_states.position[0].@degrees",
           "enabled": true,
           "timestampMethod": "receiveTime",
-          "label": "left",
+          "label": "L measured",
           "color": "#4e98e2",
           "lineSize": 2
         },
         {
-          "value": "/policy/joint_targets.position[0]",
+          "value": "/policy/joint_targets.position[0].@degrees",
           "enabled": true,
           "timestampMethod": "receiveTime",
-          "label": "left target",
+          "label": "L target",
           "color": "#a9cdf2",
           "lineSize": 1
         },
         {
-          "value": "/joint_states.position[5]",
+          "value": "/joint_states.position[5].@degrees",
           "enabled": true,
           "timestampMethod": "receiveTime",
-          "label": "right",
+          "label": "R measured",
           "color": "#f5774d",
           "lineSize": 2
         },
         {
-          "value": "/policy/joint_targets.position[5]",
+          "value": "/policy/joint_targets.position[5].@degrees",
           "enabled": true,
           "timestampMethod": "receiveTime",
-          "label": "right target",
+          "label": "R target",
           "color": "#fbbca6",
           "lineSize": 1
         }
@@ -577,37 +639,37 @@
       "sidebarDimension": 240
     },
     "Plot!hip_roll": {
-      "foxglovePanelTitle": "Hip roll (rad)",
+      "foxglovePanelTitle": "Hip roll (deg)",
       "paths": [
         {
-          "value": "/joint_states.position[1]",
+          "value": "/joint_states.position[1].@degrees",
           "enabled": true,
           "timestampMethod": "receiveTime",
-          "label": "left",
+          "label": "L measured",
           "color": "#4e98e2",
           "lineSize": 2
         },
         {
-          "value": "/policy/joint_targets.position[1]",
+          "value": "/policy/joint_targets.position[1].@degrees",
           "enabled": true,
           "timestampMethod": "receiveTime",
-          "label": "left target",
+          "label": "L target",
           "color": "#a9cdf2",
           "lineSize": 1
         },
         {
-          "value": "/joint_states.position[6]",
+          "value": "/joint_states.position[6].@degrees",
           "enabled": true,
           "timestampMethod": "receiveTime",
-          "label": "right",
+          "label": "R measured",
           "color": "#f5774d",
           "lineSize": 2
         },
         {
-          "value": "/policy/joint_targets.position[6]",
+          "value": "/policy/joint_targets.position[6].@degrees",
           "enabled": true,
           "timestampMethod": "receiveTime",
-          "label": "right target",
+          "label": "R target",
           "color": "#fbbca6",
           "lineSize": 1
         }
@@ -623,37 +685,37 @@
       "sidebarDimension": 240
     },
     "Plot!hip_yaw": {
-      "foxglovePanelTitle": "Hip yaw (rad)",
+      "foxglovePanelTitle": "Hip yaw (deg)",
       "paths": [
         {
-          "value": "/joint_states.position[2]",
+          "value": "/joint_states.position[2].@degrees",
           "enabled": true,
           "timestampMethod": "receiveTime",
-          "label": "left",
+          "label": "L measured",
           "color": "#4e98e2",
           "lineSize": 2
         },
         {
-          "value": "/policy/joint_targets.position[2]",
+          "value": "/policy/joint_targets.position[2].@degrees",
           "enabled": true,
           "timestampMethod": "receiveTime",
-          "label": "left target",
+          "label": "L target",
           "color": "#a9cdf2",
           "lineSize": 1
         },
         {
-          "value": "/joint_states.position[7]",
+          "value": "/joint_states.position[7].@degrees",
           "enabled": true,
           "timestampMethod": "receiveTime",
-          "label": "right",
+          "label": "R measured",
           "color": "#f5774d",
           "lineSize": 2
         },
         {
-          "value": "/policy/joint_targets.position[7]",
+          "value": "/policy/joint_targets.position[7].@degrees",
           "enabled": true,
           "timestampMethod": "receiveTime",
-          "label": "right target",
+          "label": "R target",
           "color": "#fbbca6",
           "lineSize": 1
         }
@@ -669,37 +731,37 @@
       "sidebarDimension": 240
     },
     "Plot!knee_pitch": {
-      "foxglovePanelTitle": "Knee (rad)",
+      "foxglovePanelTitle": "Knee (deg)",
       "paths": [
         {
-          "value": "/joint_states.position[3]",
+          "value": "/joint_states.position[3].@degrees",
           "enabled": true,
           "timestampMethod": "receiveTime",
-          "label": "left",
+          "label": "L measured",
           "color": "#4e98e2",
           "lineSize": 2
         },
         {
-          "value": "/policy/joint_targets.position[3]",
+          "value": "/policy/joint_targets.position[3].@degrees",
           "enabled": true,
           "timestampMethod": "receiveTime",
-          "label": "left target",
+          "label": "L target",
           "color": "#a9cdf2",
           "lineSize": 1
         },
         {
-          "value": "/joint_states.position[8]",
+          "value": "/joint_states.position[8].@degrees",
           "enabled": true,
           "timestampMethod": "receiveTime",
-          "label": "right",
+          "label": "R measured",
           "color": "#f5774d",
           "lineSize": 2
         },
         {
-          "value": "/policy/joint_targets.position[8]",
+          "value": "/policy/joint_targets.position[8].@degrees",
           "enabled": true,
           "timestampMethod": "receiveTime",
-          "label": "right target",
+          "label": "R target",
           "color": "#fbbca6",
           "lineSize": 1
         }
@@ -715,37 +777,37 @@
       "sidebarDimension": 240
     },
     "Plot!ankle_pitch": {
-      "foxglovePanelTitle": "Ankle (rad)",
+      "foxglovePanelTitle": "Ankle (deg)",
       "paths": [
         {
-          "value": "/joint_states.position[4]",
+          "value": "/joint_states.position[4].@degrees",
           "enabled": true,
           "timestampMethod": "receiveTime",
-          "label": "left",
+          "label": "L measured",
           "color": "#4e98e2",
           "lineSize": 2
         },
         {
-          "value": "/policy/joint_targets.position[4]",
+          "value": "/policy/joint_targets.position[4].@degrees",
           "enabled": true,
           "timestampMethod": "receiveTime",
-          "label": "left target",
+          "label": "L target",
           "color": "#a9cdf2",
           "lineSize": 1
         },
         {
-          "value": "/joint_states.position[9]",
+          "value": "/joint_states.position[9].@degrees",
           "enabled": true,
           "timestampMethod": "receiveTime",
-          "label": "right",
+          "label": "R measured",
           "color": "#f5774d",
           "lineSize": 2
         },
         {
-          "value": "/policy/joint_targets.position[9]",
+          "value": "/policy/joint_targets.position[9].@degrees",
           "enabled": true,
           "timestampMethod": "receiveTime",
-          "label": "right target",
+          "label": "R target",
           "color": "#fbbca6",
           "lineSize": 1
         }
@@ -791,7 +853,9 @@
       "isSynced": true,
       "xAxisVal": "timestamp",
       "followingViewWidth": 300,
-      "sidebarDimension": 240
+      "sidebarDimension": 240,
+      "minYValue": 30,
+      "maxYValue": 43
     },
     "Plot!current": {
       "foxglovePanelTitle": "Estimated current (A)",
@@ -879,27 +943,19 @@
       "sidebarDimension": 240
     },
     "Plot!computer": {
-      "foxglovePanelTitle": "Jetson CPU (%) and hottest motor (C)",
+      "foxglovePanelTitle": "Computer CPU (%)",
       "paths": [
         {
           "value": "/foxglove_bridge/sysinfo.total_cpu_percent",
           "enabled": true,
           "timestampMethod": "receiveTime",
-          "label": "CPU %",
+          "label": "CPU",
           "color": "#4e98e2",
           "lineSize": 1.5
-        },
-        {
-          "value": "/robot/max_motor_temperature.data",
-          "enabled": true,
-          "timestampMethod": "receiveTime",
-          "label": "hottest motor C",
-          "color": "#f5774d",
-          "lineSize": 2
         }
       ],
-      "showLegend": true,
-      "legendDisplay": "floating",
+      "showLegend": false,
+      "legendDisplay": "top",
       "showPlotValuesInLegend": false,
       "showXAxisLabels": true,
       "showYAxisLabels": true,
@@ -909,6 +965,30 @@
       "sidebarDimension": 240,
       "minYValue": 0,
       "maxYValue": 100
+    },
+    "Plot!temperature": {
+      "foxglovePanelTitle": "Hottest motor (\u00b0C; warning at 70)",
+      "paths": [
+        {
+          "value": "/robot/max_motor_temperature.data",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "motor",
+          "color": "#f5774d",
+          "lineSize": 2
+        }
+      ],
+      "showLegend": false,
+      "legendDisplay": "top",
+      "showPlotValuesInLegend": false,
+      "showXAxisLabels": true,
+      "showYAxisLabels": true,
+      "isSynced": true,
+      "xAxisVal": "timestamp",
+      "followingViewWidth": 120,
+      "sidebarDimension": 240,
+      "minYValue": 0,
+      "maxYValue": 90
     },
     "DiagnosticSummary!health": {
       "foxglovePanelTitle": "Health",
@@ -961,24 +1041,9 @@
               },
               "second": {
                 "direction": "column",
-                "first": {
-                  "direction": "column",
-                  "first": {
-                    "direction": "row",
-                    "first": "Gauge!battery",
-                    "second": "Gauge!current",
-                    "splitPercentage": 50
-                  },
-                  "second": {
-                    "direction": "row",
-                    "first": "Gauge!left",
-                    "second": "Gauge!right",
-                    "splitPercentage": 50
-                  },
-                  "splitPercentage": 52
-                },
+                "first": "3D!telemetry",
                 "second": "Image!camera",
-                "splitPercentage": 42
+                "splitPercentage": 44
               },
               "splitPercentage": 9
             },
@@ -1029,7 +1094,12 @@
               "second": {
                 "direction": "column",
                 "first": "Plot!torque",
-                "second": "Plot!computer",
+                "second": {
+                  "direction": "row",
+                  "first": "Plot!computer",
+                  "second": "Plot!temperature",
+                  "splitPercentage": 50
+                },
                 "splitPercentage": 50
               },
               "splitPercentage": 50
