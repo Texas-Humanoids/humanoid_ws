@@ -75,12 +75,13 @@ For a charge estimate, set the pack's series cell count in the robot yaml:
 
 ```yaml
 battery:
-  cells: 12               # e.g. 12S
-  low_cell_voltage: 3.5   # Health turns red below this, per cell
+  cells: 10               # the 36 V VATOSO pack is 10S: 42 V full, 30 V empty
+  low_cell_voltage: 3.3   # Health turns red below this, per cell (33 V)
 ```
 
-The percentage comes from a resting Li-ion/LiPo voltage curve, so it reads low
-while the motors pull hard and recovers at rest. The sim has no battery, so
+The percentage comes from a resting 18650 Li-ion voltage curve, so it reads
+low while the motors pull hard and recovers at rest. On a bench power supply
+it reads whatever that voltage maps to (48 V shows as full). The sim has no battery, so
 those panels stay empty there.
 
 ## Try it in the sim (no robot needed)

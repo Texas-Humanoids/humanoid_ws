@@ -3,13 +3,12 @@
 import math
 import statistics
 
-# Resting voltage per cell (V) vs. state of charge (%) for a Li-ion/LiPo cell. Under load the
-# voltage sags, so the estimate reads low while the robot is working hard.
+# Resting voltage per cell (V) vs. state of charge (%) for an 18650-style Li-ion (NMC) cell, as
+# in the 36 V (10S) pack: 42 V full, 36 V about a third, 30 V empty. Under load the voltage
+# sags, so the estimate reads low while the robot is working hard.
 CELL_CURVE = [
-    (3.27, 0.0), (3.61, 5.0), (3.69, 10.0), (3.71, 15.0), (3.73, 20.0), (3.75, 25.0),
-    (3.77, 30.0), (3.79, 35.0), (3.80, 40.0), (3.82, 45.0), (3.84, 50.0), (3.85, 55.0),
-    (3.87, 60.0), (3.91, 65.0), (3.95, 70.0), (3.98, 75.0), (4.02, 80.0), (4.08, 85.0),
-    (4.11, 90.0), (4.15, 95.0), (4.20, 100.0),
+    (3.00, 0.0), (3.20, 2.0), (3.30, 5.0), (3.40, 12.0), (3.50, 20.0), (3.60, 30.0),
+    (3.70, 45.0), (3.80, 60.0), (3.90, 70.0), (4.00, 80.0), (4.10, 90.0), (4.20, 100.0),
 ]
 
 # Rotation taking NED world vectors into ENU: swap x and y, flip z.

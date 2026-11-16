@@ -38,9 +38,11 @@ def test_battery_fraction():
     assert math.isnan(t.battery_fraction(math.nan, 12))
     assert t.battery_fraction(12 * 4.2, 12) == pytest.approx(1.0)
     assert t.battery_fraction(12 * 4.3, 12) == 1.0
-    assert t.battery_fraction(12 * 3.0, 12) == 0.0
-    assert t.battery_fraction(12 * 3.84, 12) == pytest.approx(0.5)
-    assert t.battery_fraction(12 * 3.835, 12) == pytest.approx(0.4875)
+    assert t.battery_fraction(12 * 2.9, 12) == 0.0
+    # The team's 36 V 10S pack: nominal 36 V is about a third, 42 V full.
+    assert t.battery_fraction(36.0, 10) == pytest.approx(0.30)
+    assert t.battery_fraction(42.0, 10) == pytest.approx(1.0)
+    assert t.battery_fraction(37.5, 10) == pytest.approx(0.525)
 
 
 def test_pack_voltage_and_power():

@@ -78,7 +78,7 @@ class RobotMonitor(Node):
         if len(joints) != len(namespaces):
             raise ValueError('joints and motor_namespaces need the same length')
         self.cells = int(p('battery_cells', 0).value)
-        self.low_cell_voltage = float(p('battery_low_cell_voltage', 3.5).value)
+        self.low_cell_voltage = float(p('battery_low_cell_voltage', 3.3).value)
         self.hot_temperature = float(p('hot_temperature', 70.0).value)
         rotation = list(p('imu_rotation', [1.0, 0.0, 0.0, 0.0]).value)
         self.imu_to_base = telemetry.quat_normalize(rotation)
