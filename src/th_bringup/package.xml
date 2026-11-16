@@ -12,6 +12,7 @@
   <exec_depend>launch_ros</exec_depend>
   <exec_depend>python3-yaml</exec_depend>
   <exec_depend>robstride_motor</exec_depend>
+  <exec_depend>th_autonomy</exec_depend>
   <exec_depend>th_foxglove</exec_depend>
   <exec_depend>th_policy_bridge</exec_depend>
   <exec_depend>th_policy_node</exec_depend>
