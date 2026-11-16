@@ -49,23 +49,26 @@ nothing extra to run on the robot.
 
 ## What the layout shows
 
-**Overview tab**
+**Overview**: the robot and the numbers you watch while it runs.
 
 | Panel | Source | What it tells you |
 |---|---|---|
-| Robot (live pose) | `/robot_description`, `/tf` | The WalkerV2 model with every joint at its measured angle. In sim the base moves with MuJoCo's ground truth; on hardware it tilts with the IMU at a fixed height (there is no position estimate yet). |
+| Robot | `/robot_description`, `/tf` | The WalkerV2 model with every joint at its measured angle. In sim the base follows MuJoCo's ground truth; on hardware it tilts with the IMU at a fixed height (no position estimate yet). |
+| State | `/policy_bridge/mode` | DISARMED (red, motors damp) / STAND (yellow) / WALK (green) |
+| Battery (V), Battery (%), Motor power (W), Tilt (deg) | `/robot/*` | Rounded readouts. Battery is empty in sim. |
+| Speed command | `/cmd_vel` | Forward, sideways and turn command from the stick |
+| Lean | `/robot/lean_*_deg` | Forward (nose down +) and left (left side down +) lean; the bridge disarms at 57° tilt |
 | Camera | `/camera/image/compressed` | The bench camera ([tools/bench_camera](../../tools/bench_camera/README.md)) |
-| Robot state | `/policy_bridge/mode` | DISARMED (red, motors damp) / STAND (yellow) / WALK (green) |
-| Battery charge | `/battery.percentage` | 0-1, estimated from voltage. Needs `battery.cells` (below). |
-| Tilt from upright | `/robot/tilt_deg` | Degrees; the bridge disarms at 57° (`max_tilt` 1.0 rad) |
-| Battery voltage and motor power | `/battery.voltage`, `/robot/mechanical_power` | Supply voltage (sags under load) and Σ\|torque × speed\| over the joints, in W. Electrical draw is higher. |
-| Command and lean | `/cmd_vel`, `/policy_bridge/projected_gravity` | Stick command vs. how far the base leans (gravity x > 0 = leaning forward) |
-| Jetson load and motor heat | `/foxglove_bridge/sysinfo`, `/robot/max_motor_temperature` | Jetson CPU %, hottest motor °C |
-| Health | `/diagnostics` | One row per motor (faults, mode, temperature, torque, bus voltage), plus battery, IMU rate and bridge mode. Click a row for details. |
-| Log | `/rosout` | Warnings and errors from every node (filter box at the top) |
+| Health | `/diagnostics` | One row per motor (faults, mode, temperature, torque, bus voltage), plus battery, IMU rate and bridge mode; problems sort to the top. Click a row for details. |
 
-**Motors & policy tab**: measured vs. policy target angle for each leg, mode
-history, per-motor temperature and torque, and the health table again.
+**Joints**: one plot per joint (hip pitch, roll, yaw, knee, ankle), each with
+the left (blue) and right (orange) leg, measured as a solid line and the policy
+target as a thin light line. If measured does not follow target, that joint's
+gains, calibration or motor are the suspects. Plus the state history.
+
+**System**: battery voltage over the last 5 minutes, motor power, knee and
+ankle torque (the joints that carry the robot), Jetson CPU and the hottest
+motor, and the log (warnings and errors only).
 
 ## Battery
 

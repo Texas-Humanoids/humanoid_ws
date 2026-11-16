@@ -7,9 +7,14 @@ Inputs (per motor namespace <ns>, as robstride_motor_node or th_sim publish them
 Outputs:
   /battery                       sensor_msgs/BatteryState  voltage (median of the motors'
                                  supply readings) and percentage (needs battery.cells)
+  /robot/battery_voltage         std_msgs/Float64  V, 0.1 V steps (only with a reading)
+  /robot/battery_percent         std_msgs/Float64  0-100, whole percent (needs battery.cells)
   /robot/mechanical_power        std_msgs/Float64  sum of |torque * velocity| over joints, W
   /robot/max_motor_temperature   std_msgs/Float64  hottest motor, C
   /robot/tilt_deg                std_msgs/Float64  base tilt from upright, degrees
+  /robot/lean_forward_deg,       std_msgs/Float64  lean toward +x (nose down) and +y (left
+  /robot/lean_left_deg                             side down), degrees
+  The /robot/* numbers are rounded so the dashboard shows them as they are read.
   /diagnostics                   diagnostic_msgs/DiagnosticArray  battery, bridge, IMU, motors
   /tf                            world -> base_link: the sim's ground-truth pose when running
                                  in MuJoCo, otherwise the IMU orientation at base_height
@@ -117,6 +122,10 @@ class RobotMonitor(Node):
         self.power_pub = self.create_publisher(Float64, '/robot/mechanical_power', 10)
         self.temperature_pub = self.create_publisher(Float64, '/robot/max_motor_temperature', 10)
         self.tilt_pub = self.create_publisher(Float64, '/robot/tilt_deg', 10)
+        self.voltage_pub = self.create_publisher(Float64, '/robot/battery_voltage', 10)
+        self.percent_pub = self.create_publisher(Float64, '/robot/battery_percent', 10)
+        self.lean_forward_pub = self.create_publisher(Float64, '/robot/lean_forward_deg', 10)
+        self.lean_left_pub = self.create_publisher(Float64, '/robot/lean_left_deg', 10)
         self.diagnostics_pub = self.create_publisher(DiagnosticArray, '/diagnostics', 10)
         self.tf = TransformBroadcaster(self)
         self.imu_count_at = (0, time.monotonic())
@@ -178,19 +187,26 @@ class RobotMonitor(Node):
         battery.power_supply_status = BatteryState.POWER_SUPPLY_STATUS_DISCHARGING
         battery.present = math.isfinite(volts)
         self.battery_pub.publish(battery)
+        if math.isfinite(volts):
+            self.voltage_pub.publish(Float64(data=round(volts, 1)))
+        if math.isfinite(battery.percentage):
+            self.percent_pub.publish(Float64(data=float(round(battery.percentage * 100))))
 
         torques = [m.torque.get(0.5) for m in self.motors]
         velocities = [m.velocity.get(0.5) for m in self.motors]
         if any(t is not None for t in torques):
             self.power_pub.publish(
-                Float64(data=float(telemetry.mechanical_power(torques, velocities))))
+                Float64(data=float(round(telemetry.mechanical_power(torques, velocities)))))
         temperatures = [m.temperature.get(3.0) for m in self.motors]
         temperatures = [t for t in temperatures if t is not None]
         if temperatures:
-            self.temperature_pub.publish(Float64(data=float(max(temperatures))))
+            self.temperature_pub.publish(Float64(data=round(float(max(temperatures)), 1)))
         _, q, source = self.base_pose()
         if source != 'none':
-            self.tilt_pub.publish(Float64(data=math.degrees(telemetry.tilt(q))))
+            self.tilt_pub.publish(Float64(data=round(math.degrees(telemetry.tilt(q)), 1)))
+            forward, left = telemetry.lean(q)
+            self.lean_forward_pub.publish(Float64(data=round(forward, 1)))
+            self.lean_left_pub.publish(Float64(data=round(left, 1)))
 
     # -- 1 Hz diagnostics -------------------------------------------------------------------
 
@@ -211,7 +227,7 @@ class RobotMonitor(Node):
         fraction = telemetry.battery_fraction(volts, self.cells)
         values = {'voltage_v': f'{volts:.2f}', 'cells': str(self.cells or 'unknown')}
         if not math.isfinite(volts):
-            level, message = STALE, 'No supply voltage from the motors'
+            level, message = STALE, 'no voltage reading'
         elif self.cells > 0 and volts < self.low_cell_voltage * self.cells:
             level, message = ERROR, f'LOW {volts:.1f} V ({fraction:.0%})'
         elif self.cells > 0:
@@ -225,14 +241,14 @@ class RobotMonitor(Node):
     def bridge_status(self):
         mode = self.mode.value
         if mode is None:
-            return status('robot: policy_bridge', STALE, 'No mode from policy_bridge')
+            return status('robot: policy_bridge', STALE, 'no mode')
         return status('robot: policy_bridge', OK if mode != 'DISARMED' else WARN, mode,
                       {'mode': mode})
 
     def imu_status(self):
         values = {'rate_hz': f'{self.imu_rate:.0f}'}
         if not self.imu.fresh(0.5):
-            return status('robot: imu', STALE, 'No IMU data', values)
+            return status('robot: imu', STALE, 'no data', values)
         _, q, source = self.base_pose()
         values['tilt_deg'] = f'{math.degrees(telemetry.tilt(q)):.1f}'
         values['pose_source'] = source
@@ -249,7 +265,7 @@ class RobotMonitor(Node):
                 level, message = WARN, f'hot: {temperature:.0f} C'
             return status(name, level, message, values, reported.hardware_id)
         if motor.velocity.fresh(0.5):  # th_sim, or a motor whose status frames stopped
-            return status(name, OK, 'feedback only (no status frames)')
+            return status(name, OK, 'OK (no status frames)')
         return status(name, STALE, 'no feedback')
 
 

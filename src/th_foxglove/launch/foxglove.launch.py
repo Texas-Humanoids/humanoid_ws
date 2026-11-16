@@ -54,6 +54,8 @@ def launch_dashboard(context):
         'robots', 'walker_v2', 'urdf', 'walker_v2.urdf')
     with open(urdf_path) as f:
         urdf = package_uris(f.read(), urdf_path)
+    # The CAD export's dark grey (0.25) nearly disappears on Foxglove's dark background.
+    urdf = urdf.replace('rgba="0.25 0.25 0.27 1"', 'rgba="0.62 0.64 0.68 1"')
     actions.append(Node(
         package='robot_state_publisher', executable='robot_state_publisher',
         parameters=[{'robot_description': urdf}], output='log'))

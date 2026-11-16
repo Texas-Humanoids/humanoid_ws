@@ -85,6 +85,17 @@ def base_orientation(imu_orientation, imu_to_base, world_ned=False):
     return quat_normalize(q)
 
 
+def lean(orientation):
+    """(forward, left) lean of base_link in degrees: how far gravity tips into +x and +y.
+
+    Matches policy_bridge's projected gravity: nose down reads as leaning forward (+),
+    left side down as leaning left (+).
+    """
+    gx, gy, _ = quat_rotate(quat_conjugate(quat_normalize(orientation)), (0.0, 0.0, -1.0))
+    return (math.degrees(math.asin(max(-1.0, min(1.0, gx)))),
+            math.degrees(math.asin(max(-1.0, min(1.0, gy)))))
+
+
 def tilt(orientation):
     """Angle (rad) between base_link's z axis and the world's up axis."""
     w, x, y, z = quat_normalize(orientation)

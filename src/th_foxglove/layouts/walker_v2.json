@@ -1,18 +1,18 @@
 {
   "configById": {
     "3D!robot": {
-      "foxglovePanelTitle": "Robot (live pose)",
+      "foxglovePanelTitle": "Robot",
       "followTf": "base_link",
       "followMode": "follow-position",
       "cameraState": {
         "perspective": true,
-        "distance": 2.2,
-        "phi": 65,
-        "thetaOffset": 35,
+        "distance": 2.4,
+        "phi": 72,
+        "thetaOffset": 45,
         "targetOffset": [
           0,
           0,
-          0
+          -0.15
         ],
         "target": [
           0,
@@ -31,18 +31,56 @@
       },
       "scene": {
         "enableStats": false,
+        "backgroundColor": "#262a31",
         "transforms": {
           "showLabel": false,
-          "axisScale": 0.4
-        },
-        "backgroundColor": "#1b1d22"
+          "axisSize": 0.08,
+          "lineWidth": 0
+        }
       },
-      "transforms": {},
+      "transforms": {
+        "frame:world": {
+          "visible": false
+        },
+        "frame:base_link": {
+          "visible": false
+        },
+        "frame:imu_link": {
+          "visible": false
+        },
+        "frame:left_hip_pitch_link": {
+          "visible": false
+        },
+        "frame:left_hip_roll_link": {
+          "visible": false
+        },
+        "frame:left_thigh_link": {
+          "visible": false
+        },
+        "frame:left_shank_link": {
+          "visible": false
+        },
+        "frame:left_foot_link": {
+          "visible": false
+        },
+        "frame:right_hip_pitch_link": {
+          "visible": false
+        },
+        "frame:right_hip_roll_link": {
+          "visible": false
+        },
+        "frame:right_thigh_link": {
+          "visible": false
+        },
+        "frame:right_shank_link": {
+          "visible": false
+        },
+        "frame:right_foot_link": {
+          "visible": false
+        }
+      },
       "topics": {
         "/robot_description": {
-          "visible": true
-        },
-        "/tf": {
           "visible": true
         }
       },
@@ -53,10 +91,10 @@
           "label": "Floor",
           "visible": true,
           "frameId": "world",
-          "size": 6,
-          "divisions": 12,
+          "size": 20,
+          "divisions": 40,
           "lineWidth": 1,
-          "color": "#ffffff33",
+          "color": "#ffffff30",
           "position": [
             0,
             0,
@@ -79,6 +117,7 @@
         "poseEstimateYDeviation": 0.5,
         "poseEstimateThetaDeviation": 0.26179939
       },
+      "synchronize": false,
       "imageMode": {}
     },
     "Image!camera": {
@@ -122,155 +161,480 @@
         "poseEstimateYDeviation": 0.5,
         "poseEstimateThetaDeviation": 0.26179939
       },
+      "synchronize": false,
       "imageMode": {
         "imageTopic": "/camera/image/compressed"
       }
     },
     "Indicator!mode": {
-      "foxglovePanelTitle": "Robot state",
+      "foxglovePanelTitle": "State",
       "path": "/policy_bridge/mode.data",
       "style": "background",
-      "fallbackColor": "#a0a0a0",
+      "fallbackColor": "#3a3d44",
       "fallbackLabel": "NO DATA",
+      "fontSize": 28,
       "rules": [
         {
           "operator": "=",
           "rawValue": "WALK",
           "color": "#2fa84f",
-          "label": "WALK (policy driving)"
+          "label": "WALK"
         },
         {
           "operator": "=",
           "rawValue": "STAND",
-          "color": "#e6a700",
-          "label": "STAND (holding pose)"
+          "color": "#d39b00",
+          "label": "STAND"
         },
         {
           "operator": "=",
           "rawValue": "DISARMED",
-          "color": "#c0392b",
-          "label": "DISARMED (motors damp)"
+          "color": "#b03a2e",
+          "label": "DISARMED"
         }
       ]
     },
-    "Gauge!battery": {
-      "foxglovePanelTitle": "Battery charge (0-1)",
-      "path": "/battery.percentage",
-      "minValue": 0,
-      "maxValue": 1,
-      "colorMap": "red-yellow-green",
-      "colorMode": "colormap",
-      "gradient": [
-        "#0000ff",
-        "#ff00ff"
-      ],
-      "reverse": false
+    "RawMessages!volts": {
+      "foxglovePanelTitle": "Battery (V)",
+      "topicPath": "/robot/battery_voltage.data",
+      "defaultExpanded": false,
+      "fontSize": 30
     },
-    "Gauge!tilt": {
-      "foxglovePanelTitle": "Tilt from upright (deg; cutoff 57)",
-      "path": "/robot/tilt_deg.data",
-      "minValue": 0,
-      "maxValue": 60,
-      "colorMap": "red-yellow-green",
-      "colorMode": "colormap",
-      "gradient": [
-        "#0000ff",
-        "#ff00ff"
-      ],
-      "reverse": true
+    "RawMessages!percent": {
+      "foxglovePanelTitle": "Battery (%)",
+      "topicPath": "/robot/battery_percent.data",
+      "defaultExpanded": false,
+      "fontSize": 30
     },
-    "Plot!power": {
-      "paths": [
-        {
-          "value": "/battery.voltage",
-          "enabled": true,
-          "timestampMethod": "receiveTime",
-          "label": "battery V",
-          "color": "#f7df71",
-          "lineSize": 1.5
-        },
-        {
-          "value": "/robot/mechanical_power.data",
-          "enabled": true,
-          "timestampMethod": "receiveTime",
-          "label": "mech. power W",
-          "color": "#f5774d",
-          "lineSize": 1.5
-        }
-      ],
-      "showXAxisLabels": true,
-      "showYAxisLabels": true,
-      "showLegend": true,
-      "legendDisplay": "floating",
-      "showPlotValuesInLegend": true,
-      "isSynced": true,
-      "xAxisVal": "timestamp",
-      "sidebarDimension": 240,
-      "followingViewWidth": 60,
-      "minYValue": 0,
-      "foxglovePanelTitle": "Battery voltage and motor power"
+    "RawMessages!power": {
+      "foxglovePanelTitle": "Motor power (W)",
+      "topicPath": "/robot/mechanical_power.data",
+      "defaultExpanded": false,
+      "fontSize": 30
     },
-    "Plot!motion": {
+    "RawMessages!tilt": {
+      "foxglovePanelTitle": "Tilt (deg)",
+      "topicPath": "/robot/tilt_deg.data",
+      "defaultExpanded": false,
+      "fontSize": 30
+    },
+    "Plot!command": {
+      "foxglovePanelTitle": "Speed command",
       "paths": [
         {
           "value": "/cmd_vel.linear.x",
           "enabled": true,
           "timestampMethod": "receiveTime",
-          "label": "cmd vx m/s",
+          "label": "forward m/s",
           "color": "#4e98e2",
-          "lineSize": 1.5
+          "lineSize": 2
         },
         {
           "value": "/cmd_vel.linear.y",
           "enabled": true,
           "timestampMethod": "receiveTime",
-          "label": "cmd vy m/s",
+          "label": "left m/s",
           "color": "#61cbff",
-          "lineSize": 1.5
+          "lineSize": 2
         },
         {
           "value": "/cmd_vel.angular.z",
           "enabled": true,
           "timestampMethod": "receiveTime",
-          "label": "cmd wz rad/s",
-          "color": "#9cc96b",
+          "label": "turn rad/s",
+          "color": "#5cd6a9",
+          "lineSize": 2
+        }
+      ],
+      "showLegend": true,
+      "legendDisplay": "top",
+      "showPlotValuesInLegend": false,
+      "showXAxisLabels": true,
+      "showYAxisLabels": true,
+      "isSynced": true,
+      "xAxisVal": "timestamp",
+      "followingViewWidth": 30,
+      "sidebarDimension": 240
+    },
+    "Plot!lean": {
+      "foxglovePanelTitle": "Lean (deg; bridge disarms at 57)",
+      "paths": [
+        {
+          "value": "/robot/lean_forward_deg.data",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "forward",
+          "color": "#f5774d",
+          "lineSize": 2
+        },
+        {
+          "value": "/robot/lean_left_deg.data",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "left",
+          "color": "#e05ea8",
+          "lineSize": 2
+        }
+      ],
+      "showLegend": true,
+      "legendDisplay": "top",
+      "showPlotValuesInLegend": false,
+      "showXAxisLabels": true,
+      "showYAxisLabels": true,
+      "isSynced": true,
+      "xAxisVal": "timestamp",
+      "followingViewWidth": 30,
+      "sidebarDimension": 240
+    },
+    "DiagnosticSummary!health": {
+      "foxglovePanelTitle": "Health",
+      "topicToRender": "/diagnostics",
+      "pinnedIds": [],
+      "hardwareIdFilter": "",
+      "sortByLevel": true,
+      "minLevel": 0,
+      "secondsUntilStale": 5
+    },
+    "Plot!hip_pitch": {
+      "foxglovePanelTitle": "Hip pitch (rad)",
+      "paths": [
+        {
+          "value": "/joint_states.position[0]",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "left",
+          "color": "#4e98e2",
+          "lineSize": 2
+        },
+        {
+          "value": "/policy/joint_targets.position[0]",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "left target",
+          "color": "#a9cdf2",
+          "lineSize": 1
+        },
+        {
+          "value": "/joint_states.position[5]",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "right",
+          "color": "#f5774d",
+          "lineSize": 2
+        },
+        {
+          "value": "/policy/joint_targets.position[5]",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "right target",
+          "color": "#fbbca6",
+          "lineSize": 1
+        }
+      ],
+      "showLegend": true,
+      "legendDisplay": "top",
+      "showPlotValuesInLegend": false,
+      "showXAxisLabels": true,
+      "showYAxisLabels": true,
+      "isSynced": true,
+      "xAxisVal": "timestamp",
+      "followingViewWidth": 8,
+      "sidebarDimension": 240
+    },
+    "Plot!hip_roll": {
+      "foxglovePanelTitle": "Hip roll (rad)",
+      "paths": [
+        {
+          "value": "/joint_states.position[1]",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "left",
+          "color": "#4e98e2",
+          "lineSize": 2
+        },
+        {
+          "value": "/policy/joint_targets.position[1]",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "left target",
+          "color": "#a9cdf2",
+          "lineSize": 1
+        },
+        {
+          "value": "/joint_states.position[6]",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "right",
+          "color": "#f5774d",
+          "lineSize": 2
+        },
+        {
+          "value": "/policy/joint_targets.position[6]",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "right target",
+          "color": "#fbbca6",
+          "lineSize": 1
+        }
+      ],
+      "showLegend": true,
+      "legendDisplay": "top",
+      "showPlotValuesInLegend": false,
+      "showXAxisLabels": true,
+      "showYAxisLabels": true,
+      "isSynced": true,
+      "xAxisVal": "timestamp",
+      "followingViewWidth": 8,
+      "sidebarDimension": 240
+    },
+    "Plot!hip_yaw": {
+      "foxglovePanelTitle": "Hip yaw (rad)",
+      "paths": [
+        {
+          "value": "/joint_states.position[2]",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "left",
+          "color": "#4e98e2",
+          "lineSize": 2
+        },
+        {
+          "value": "/policy/joint_targets.position[2]",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "left target",
+          "color": "#a9cdf2",
+          "lineSize": 1
+        },
+        {
+          "value": "/joint_states.position[7]",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "right",
+          "color": "#f5774d",
+          "lineSize": 2
+        },
+        {
+          "value": "/policy/joint_targets.position[7]",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "right target",
+          "color": "#fbbca6",
+          "lineSize": 1
+        }
+      ],
+      "showLegend": true,
+      "legendDisplay": "top",
+      "showPlotValuesInLegend": false,
+      "showXAxisLabels": true,
+      "showYAxisLabels": true,
+      "isSynced": true,
+      "xAxisVal": "timestamp",
+      "followingViewWidth": 8,
+      "sidebarDimension": 240
+    },
+    "Plot!knee_pitch": {
+      "foxglovePanelTitle": "Knee (rad)",
+      "paths": [
+        {
+          "value": "/joint_states.position[3]",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "left",
+          "color": "#4e98e2",
+          "lineSize": 2
+        },
+        {
+          "value": "/policy/joint_targets.position[3]",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "left target",
+          "color": "#a9cdf2",
+          "lineSize": 1
+        },
+        {
+          "value": "/joint_states.position[8]",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "right",
+          "color": "#f5774d",
+          "lineSize": 2
+        },
+        {
+          "value": "/policy/joint_targets.position[8]",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "right target",
+          "color": "#fbbca6",
+          "lineSize": 1
+        }
+      ],
+      "showLegend": true,
+      "legendDisplay": "top",
+      "showPlotValuesInLegend": false,
+      "showXAxisLabels": true,
+      "showYAxisLabels": true,
+      "isSynced": true,
+      "xAxisVal": "timestamp",
+      "followingViewWidth": 8,
+      "sidebarDimension": 240
+    },
+    "Plot!ankle_pitch": {
+      "foxglovePanelTitle": "Ankle (rad)",
+      "paths": [
+        {
+          "value": "/joint_states.position[4]",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "left",
+          "color": "#4e98e2",
+          "lineSize": 2
+        },
+        {
+          "value": "/policy/joint_targets.position[4]",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "left target",
+          "color": "#a9cdf2",
+          "lineSize": 1
+        },
+        {
+          "value": "/joint_states.position[9]",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "right",
+          "color": "#f5774d",
+          "lineSize": 2
+        },
+        {
+          "value": "/policy/joint_targets.position[9]",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "right target",
+          "color": "#fbbca6",
+          "lineSize": 1
+        }
+      ],
+      "showLegend": true,
+      "legendDisplay": "top",
+      "showPlotValuesInLegend": false,
+      "showXAxisLabels": true,
+      "showYAxisLabels": true,
+      "isSynced": true,
+      "xAxisVal": "timestamp",
+      "followingViewWidth": 8,
+      "sidebarDimension": 240
+    },
+    "StateTransitions!mode": {
+      "foxglovePanelTitle": "State history",
+      "isSynced": true,
+      "paths": [
+        {
+          "value": "/policy_bridge/mode.data",
+          "timestampMethod": "receiveTime",
+          "label": "state"
+        }
+      ]
+    },
+    "Plot!battery": {
+      "foxglovePanelTitle": "Battery voltage (V)",
+      "paths": [
+        {
+          "value": "/robot/battery_voltage.data",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "battery",
+          "color": "#f7df71",
+          "lineSize": 2
+        }
+      ],
+      "showLegend": false,
+      "legendDisplay": "top",
+      "showPlotValuesInLegend": false,
+      "showXAxisLabels": true,
+      "showYAxisLabels": true,
+      "isSynced": true,
+      "xAxisVal": "timestamp",
+      "followingViewWidth": 300,
+      "sidebarDimension": 240
+    },
+    "Plot!powerhist": {
+      "foxglovePanelTitle": "Motor power (W)",
+      "paths": [
+        {
+          "value": "/robot/mechanical_power.data",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "power",
+          "color": "#f5774d",
+          "lineSize": 1.5
+        }
+      ],
+      "showLegend": false,
+      "legendDisplay": "top",
+      "showPlotValuesInLegend": false,
+      "showXAxisLabels": true,
+      "showYAxisLabels": true,
+      "isSynced": true,
+      "xAxisVal": "timestamp",
+      "followingViewWidth": 60,
+      "sidebarDimension": 240,
+      "minYValue": 0
+    },
+    "Plot!torque": {
+      "foxglovePanelTitle": "Knee and ankle torque (Nm)",
+      "paths": [
+        {
+          "value": "/left_knee_pitch/motor/actual_torque.data",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "L knee",
+          "color": "#4e98e2",
           "lineSize": 1.5
         },
         {
-          "value": "/policy_bridge/projected_gravity.x",
+          "value": "/right_knee_pitch/motor/actual_torque.data",
           "enabled": true,
           "timestampMethod": "receiveTime",
-          "label": "gravity x (lean fwd +)",
+          "label": "R knee",
           "color": "#f5774d",
           "lineSize": 1.5
         },
         {
-          "value": "/policy_bridge/projected_gravity.y",
+          "value": "/left_ankle_pitch/motor/actual_torque.data",
           "enabled": true,
           "timestampMethod": "receiveTime",
-          "label": "gravity y (lean left +)",
-          "color": "#e05ea8",
+          "label": "L ankle",
+          "color": "#61cbff",
+          "lineSize": 1.5
+        },
+        {
+          "value": "/right_ankle_pitch/motor/actual_torque.data",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "R ankle",
+          "color": "#f7df71",
           "lineSize": 1.5
         }
       ],
+      "showLegend": true,
+      "legendDisplay": "top",
+      "showPlotValuesInLegend": false,
       "showXAxisLabels": true,
       "showYAxisLabels": true,
-      "showLegend": true,
-      "legendDisplay": "floating",
-      "showPlotValuesInLegend": true,
       "isSynced": true,
       "xAxisVal": "timestamp",
-      "sidebarDimension": 240,
       "followingViewWidth": 20,
-      "foxglovePanelTitle": "Command and lean"
+      "sidebarDimension": 240
     },
     "Plot!computer": {
+      "foxglovePanelTitle": "Jetson CPU (%) and hottest motor (C)",
       "paths": [
         {
           "value": "/foxglove_bridge/sysinfo.total_cpu_percent",
           "enabled": true,
           "timestampMethod": "receiveTime",
-          "label": "Jetson CPU %",
+          "label": "CPU %",
           "color": "#4e98e2",
           "lineSize": 1.5
         },
@@ -280,408 +644,34 @@
           "timestampMethod": "receiveTime",
           "label": "hottest motor C",
           "color": "#f5774d",
-          "lineSize": 1.5
+          "lineSize": 2
         }
       ],
+      "showLegend": true,
+      "legendDisplay": "top",
+      "showPlotValuesInLegend": false,
       "showXAxisLabels": true,
       "showYAxisLabels": true,
-      "showLegend": true,
-      "legendDisplay": "floating",
-      "showPlotValuesInLegend": true,
       "isSynced": true,
       "xAxisVal": "timestamp",
+      "followingViewWidth": 120,
       "sidebarDimension": 240,
-      "followingViewWidth": 60,
       "minYValue": 0,
-      "maxYValue": 100,
-      "foxglovePanelTitle": "Jetson load and motor heat"
-    },
-    "DiagnosticSummary!health": {
-      "foxglovePanelTitle": "Health",
-      "topicToRender": "/diagnostics",
-      "pinnedIds": [],
-      "hardwareIdFilter": "",
-      "sortByLevel": true
+      "maxYValue": 100
     },
     "RosOut!log": {
-      "foxglovePanelTitle": "Log",
+      "foxglovePanelTitle": "Log (warnings and errors)",
       "topicToRender": "/rosout",
       "searchTerms": [],
-      "minLogLevel": 2
-    },
-    "Plot!left": {
-      "paths": [
-        {
-          "value": "/joint_states.position[0]",
-          "enabled": true,
-          "timestampMethod": "receiveTime",
-          "label": "hip_pitch",
-          "color": "#4e98e2",
-          "lineSize": 1.5
-        },
-        {
-          "value": "/joint_states.position[1]",
-          "enabled": true,
-          "timestampMethod": "receiveTime",
-          "label": "hip_roll",
-          "color": "#f5774d",
-          "lineSize": 1.5
-        },
-        {
-          "value": "/joint_states.position[2]",
-          "enabled": true,
-          "timestampMethod": "receiveTime",
-          "label": "hip_yaw",
-          "color": "#61cbff",
-          "lineSize": 1.5
-        },
-        {
-          "value": "/joint_states.position[3]",
-          "enabled": true,
-          "timestampMethod": "receiveTime",
-          "label": "knee_pitch",
-          "color": "#f7df71",
-          "lineSize": 1.5
-        },
-        {
-          "value": "/joint_states.position[4]",
-          "enabled": true,
-          "timestampMethod": "receiveTime",
-          "label": "ankle_pitch",
-          "color": "#9cc96b",
-          "lineSize": 1.5
-        },
-        {
-          "value": "/policy/joint_targets.position[0]",
-          "enabled": true,
-          "timestampMethod": "receiveTime",
-          "label": "hip_pitch target",
-          "color": "#4e98e280",
-          "lineSize": 1.5
-        },
-        {
-          "value": "/policy/joint_targets.position[1]",
-          "enabled": true,
-          "timestampMethod": "receiveTime",
-          "label": "hip_roll target",
-          "color": "#f5774d80",
-          "lineSize": 1.5
-        },
-        {
-          "value": "/policy/joint_targets.position[2]",
-          "enabled": true,
-          "timestampMethod": "receiveTime",
-          "label": "hip_yaw target",
-          "color": "#61cbff80",
-          "lineSize": 1.5
-        },
-        {
-          "value": "/policy/joint_targets.position[3]",
-          "enabled": true,
-          "timestampMethod": "receiveTime",
-          "label": "knee_pitch target",
-          "color": "#f7df7180",
-          "lineSize": 1.5
-        },
-        {
-          "value": "/policy/joint_targets.position[4]",
-          "enabled": true,
-          "timestampMethod": "receiveTime",
-          "label": "ankle_pitch target",
-          "color": "#9cc96b80",
-          "lineSize": 1.5
-        }
-      ],
-      "showXAxisLabels": true,
-      "showYAxisLabels": true,
-      "showLegend": true,
-      "legendDisplay": "floating",
-      "showPlotValuesInLegend": true,
-      "isSynced": true,
-      "xAxisVal": "timestamp",
-      "sidebarDimension": 240,
-      "followingViewWidth": 10,
-      "foxglovePanelTitle": "Left leg: measured vs policy target (rad)"
-    },
-    "Plot!right": {
-      "paths": [
-        {
-          "value": "/joint_states.position[5]",
-          "enabled": true,
-          "timestampMethod": "receiveTime",
-          "label": "hip_pitch",
-          "color": "#4e98e2",
-          "lineSize": 1.5
-        },
-        {
-          "value": "/joint_states.position[6]",
-          "enabled": true,
-          "timestampMethod": "receiveTime",
-          "label": "hip_roll",
-          "color": "#f5774d",
-          "lineSize": 1.5
-        },
-        {
-          "value": "/joint_states.position[7]",
-          "enabled": true,
-          "timestampMethod": "receiveTime",
-          "label": "hip_yaw",
-          "color": "#61cbff",
-          "lineSize": 1.5
-        },
-        {
-          "value": "/joint_states.position[8]",
-          "enabled": true,
-          "timestampMethod": "receiveTime",
-          "label": "knee_pitch",
-          "color": "#f7df71",
-          "lineSize": 1.5
-        },
-        {
-          "value": "/joint_states.position[9]",
-          "enabled": true,
-          "timestampMethod": "receiveTime",
-          "label": "ankle_pitch",
-          "color": "#9cc96b",
-          "lineSize": 1.5
-        },
-        {
-          "value": "/policy/joint_targets.position[5]",
-          "enabled": true,
-          "timestampMethod": "receiveTime",
-          "label": "hip_pitch target",
-          "color": "#4e98e280",
-          "lineSize": 1.5
-        },
-        {
-          "value": "/policy/joint_targets.position[6]",
-          "enabled": true,
-          "timestampMethod": "receiveTime",
-          "label": "hip_roll target",
-          "color": "#f5774d80",
-          "lineSize": 1.5
-        },
-        {
-          "value": "/policy/joint_targets.position[7]",
-          "enabled": true,
-          "timestampMethod": "receiveTime",
-          "label": "hip_yaw target",
-          "color": "#61cbff80",
-          "lineSize": 1.5
-        },
-        {
-          "value": "/policy/joint_targets.position[8]",
-          "enabled": true,
-          "timestampMethod": "receiveTime",
-          "label": "knee_pitch target",
-          "color": "#f7df7180",
-          "lineSize": 1.5
-        },
-        {
-          "value": "/policy/joint_targets.position[9]",
-          "enabled": true,
-          "timestampMethod": "receiveTime",
-          "label": "ankle_pitch target",
-          "color": "#9cc96b80",
-          "lineSize": 1.5
-        }
-      ],
-      "showXAxisLabels": true,
-      "showYAxisLabels": true,
-      "showLegend": true,
-      "legendDisplay": "floating",
-      "showPlotValuesInLegend": true,
-      "isSynced": true,
-      "xAxisVal": "timestamp",
-      "sidebarDimension": 240,
-      "followingViewWidth": 10,
-      "foxglovePanelTitle": "Right leg: measured vs policy target (rad)"
-    },
-    "Plot!temps": {
-      "paths": [
-        {
-          "value": "/left_hip_pitch/motor/temperature.data",
-          "enabled": true,
-          "timestampMethod": "receiveTime",
-          "label": "left_hip_pitch",
-          "lineSize": 1.5
-        },
-        {
-          "value": "/left_hip_roll/motor/temperature.data",
-          "enabled": true,
-          "timestampMethod": "receiveTime",
-          "label": "left_hip_roll",
-          "lineSize": 1.5
-        },
-        {
-          "value": "/left_hip_yaw/motor/temperature.data",
-          "enabled": true,
-          "timestampMethod": "receiveTime",
-          "label": "left_hip_yaw",
-          "lineSize": 1.5
-        },
-        {
-          "value": "/left_knee_pitch/motor/temperature.data",
-          "enabled": true,
-          "timestampMethod": "receiveTime",
-          "label": "left_knee_pitch",
-          "lineSize": 1.5
-        },
-        {
-          "value": "/left_ankle_pitch/motor/temperature.data",
-          "enabled": true,
-          "timestampMethod": "receiveTime",
-          "label": "left_ankle_pitch",
-          "lineSize": 1.5
-        },
-        {
-          "value": "/right_hip_pitch/motor/temperature.data",
-          "enabled": true,
-          "timestampMethod": "receiveTime",
-          "label": "right_hip_pitch",
-          "lineSize": 1.5
-        },
-        {
-          "value": "/right_hip_roll/motor/temperature.data",
-          "enabled": true,
-          "timestampMethod": "receiveTime",
-          "label": "right_hip_roll",
-          "lineSize": 1.5
-        },
-        {
-          "value": "/right_hip_yaw/motor/temperature.data",
-          "enabled": true,
-          "timestampMethod": "receiveTime",
-          "label": "right_hip_yaw",
-          "lineSize": 1.5
-        },
-        {
-          "value": "/right_knee_pitch/motor/temperature.data",
-          "enabled": true,
-          "timestampMethod": "receiveTime",
-          "label": "right_knee_pitch",
-          "lineSize": 1.5
-        },
-        {
-          "value": "/right_ankle_pitch/motor/temperature.data",
-          "enabled": true,
-          "timestampMethod": "receiveTime",
-          "label": "right_ankle_pitch",
-          "lineSize": 1.5
-        }
-      ],
-      "showXAxisLabels": true,
-      "showYAxisLabels": true,
-      "showLegend": true,
-      "legendDisplay": "left",
-      "showPlotValuesInLegend": true,
-      "isSynced": true,
-      "xAxisVal": "timestamp",
-      "sidebarDimension": 240,
-      "followingViewWidth": 30,
-      "foxglovePanelTitle": "Motor temperature (C)"
-    },
-    "Plot!torques": {
-      "paths": [
-        {
-          "value": "/left_hip_pitch/motor/actual_torque.data",
-          "enabled": true,
-          "timestampMethod": "receiveTime",
-          "label": "left_hip_pitch",
-          "lineSize": 1.5
-        },
-        {
-          "value": "/left_hip_roll/motor/actual_torque.data",
-          "enabled": true,
-          "timestampMethod": "receiveTime",
-          "label": "left_hip_roll",
-          "lineSize": 1.5
-        },
-        {
-          "value": "/left_hip_yaw/motor/actual_torque.data",
-          "enabled": true,
-          "timestampMethod": "receiveTime",
-          "label": "left_hip_yaw",
-          "lineSize": 1.5
-        },
-        {
-          "value": "/left_knee_pitch/motor/actual_torque.data",
-          "enabled": true,
-          "timestampMethod": "receiveTime",
-          "label": "left_knee_pitch",
-          "lineSize": 1.5
-        },
-        {
-          "value": "/left_ankle_pitch/motor/actual_torque.data",
-          "enabled": true,
-          "timestampMethod": "receiveTime",
-          "label": "left_ankle_pitch",
-          "lineSize": 1.5
-        },
-        {
-          "value": "/right_hip_pitch/motor/actual_torque.data",
-          "enabled": true,
-          "timestampMethod": "receiveTime",
-          "label": "right_hip_pitch",
-          "lineSize": 1.5
-        },
-        {
-          "value": "/right_hip_roll/motor/actual_torque.data",
-          "enabled": true,
-          "timestampMethod": "receiveTime",
-          "label": "right_hip_roll",
-          "lineSize": 1.5
-        },
-        {
-          "value": "/right_hip_yaw/motor/actual_torque.data",
-          "enabled": true,
-          "timestampMethod": "receiveTime",
-          "label": "right_hip_yaw",
-          "lineSize": 1.5
-        },
-        {
-          "value": "/right_knee_pitch/motor/actual_torque.data",
-          "enabled": true,
-          "timestampMethod": "receiveTime",
-          "label": "right_knee_pitch",
-          "lineSize": 1.5
-        },
-        {
-          "value": "/right_ankle_pitch/motor/actual_torque.data",
-          "enabled": true,
-          "timestampMethod": "receiveTime",
-          "label": "right_ankle_pitch",
-          "lineSize": 1.5
-        }
-      ],
-      "showXAxisLabels": true,
-      "showYAxisLabels": true,
-      "showLegend": true,
-      "legendDisplay": "left",
-      "showPlotValuesInLegend": true,
-      "isSynced": true,
-      "xAxisVal": "timestamp",
-      "sidebarDimension": 240,
-      "followingViewWidth": 30,
-      "foxglovePanelTitle": "Motor torque (Nm, motor frame)"
-    },
-    "DiagnosticSummary!motors": {
-      "foxglovePanelTitle": "Health",
-      "topicToRender": "/diagnostics",
-      "pinnedIds": [],
-      "hardwareIdFilter": "",
-      "sortByLevel": true
-    },
-    "StateTransitions!mode": {
-      "foxglovePanelTitle": "Mode history",
-      "isSynced": true,
-      "paths": [
-        {
-          "value": "/policy_bridge/mode.data",
-          "timestampMethod": "receiveTime",
-          "label": "mode"
-        }
-      ]
+      "minLogLevel": 3,
+      "nameFilter": {},
+      "fontSize": 12,
+      "showLevel": true,
+      "showDate": false,
+      "showTime": true,
+      "showTimezone": false,
+      "showName": true,
+      "showSourceLocation": false
     },
     "Tab!main": {
       "activeTabIdx": 0,
@@ -695,72 +685,96 @@
               "first": "3D!robot",
               "second": {
                 "direction": "row",
-                "first": "Plot!motion",
-                "second": "Plot!computer",
+                "first": "Plot!command",
+                "second": "Plot!lean",
+                "splitPercentage": 50
+              },
+              "splitPercentage": 70
+            },
+            "second": {
+              "direction": "column",
+              "first": {
+                "direction": "column",
+                "first": "Indicator!mode",
+                "second": {
+                  "direction": "row",
+                  "first": {
+                    "direction": "row",
+                    "first": "RawMessages!volts",
+                    "second": "RawMessages!percent",
+                    "splitPercentage": 50
+                  },
+                  "second": {
+                    "direction": "row",
+                    "first": "RawMessages!power",
+                    "second": "RawMessages!tilt",
+                    "splitPercentage": 50
+                  },
+                  "splitPercentage": 50
+                },
+                "splitPercentage": 45
+              },
+              "second": {
+                "direction": "column",
+                "first": "Image!camera",
+                "second": "DiagnosticSummary!health",
                 "splitPercentage": 55
               },
-              "splitPercentage": 66
+              "splitPercentage": 22
+            },
+            "splitPercentage": 62
+          }
+        },
+        {
+          "title": "Joints",
+          "layout": {
+            "direction": "column",
+            "first": {
+              "direction": "row",
+              "first": "Plot!hip_pitch",
+              "second": "Plot!knee_pitch",
+              "splitPercentage": 50
             },
             "second": {
               "direction": "column",
               "first": {
                 "direction": "row",
-                "first": "Image!camera",
-                "second": {
-                  "direction": "column",
-                  "first": "Indicator!mode",
-                  "second": {
-                    "direction": "column",
-                    "first": "Gauge!battery",
-                    "second": "Gauge!tilt",
-                    "splitPercentage": 50
-                  },
-                  "splitPercentage": 30
-                },
-                "splitPercentage": 62
+                "first": "Plot!hip_roll",
+                "second": "Plot!ankle_pitch",
+                "splitPercentage": 50
               },
               "second": {
-                "direction": "column",
-                "first": "Plot!power",
-                "second": {
-                  "direction": "row",
-                  "first": "DiagnosticSummary!health",
-                  "second": "RosOut!log",
-                  "splitPercentage": 50
-                },
-                "splitPercentage": 40
+                "direction": "row",
+                "first": "Plot!hip_yaw",
+                "second": "StateTransitions!mode",
+                "splitPercentage": 50
               },
               "splitPercentage": 50
             },
-            "splitPercentage": 52
+            "splitPercentage": 33
           }
         },
         {
-          "title": "Motors & policy",
+          "title": "System",
           "layout": {
             "direction": "row",
             "first": {
               "direction": "column",
-              "first": "Plot!left",
-              "second": "Plot!right",
-              "splitPercentage": 50
-            },
-            "second": {
-              "direction": "column",
-              "first": "StateTransitions!mode",
+              "first": {
+                "direction": "column",
+                "first": "Plot!battery",
+                "second": "Plot!powerhist",
+                "splitPercentage": 50
+              },
               "second": {
                 "direction": "column",
-                "first": "Plot!temps",
-                "second": {
-                  "direction": "row",
-                  "first": "Plot!torques",
-                  "second": "DiagnosticSummary!motors",
-                  "splitPercentage": 60
-                },
-                "splitPercentage": 45
+                "first": "Plot!torque",
+                "second": "Plot!computer",
+                "splitPercentage": 50
               },
-              "splitPercentage": 14
+              "splitPercentage": 50
             },
+            "second": "RosOut!log",
             "splitPercentage": 55
           }
         }

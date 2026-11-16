@@ -33,6 +33,17 @@ def test_tilt():
     assert t.tilt((math.cos(1.0), 0.0, 0.0, math.sin(1.0))) == pytest.approx(0.0, abs=1e-7)
 
 
+def test_lean_signs_match_projected_gravity():
+    half = math.radians(10) / 2
+    # Nose down = rotate +10 deg about +y.
+    forward, left = t.lean((math.cos(half), 0.0, math.sin(half), 0.0))
+    assert forward == pytest.approx(10.0)
+    assert left == pytest.approx(0.0, abs=1e-9)
+    # Left side down = rotate -10 deg about +x.
+    forward, left = t.lean((math.cos(half), -math.sin(half), 0.0, 0.0))
+    assert left == pytest.approx(10.0)
+
+
 def test_battery_fraction():
     assert math.isnan(t.battery_fraction(48.0, 0))
     assert math.isnan(t.battery_fraction(math.nan, 12))
