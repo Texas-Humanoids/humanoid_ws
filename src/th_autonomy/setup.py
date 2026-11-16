@@ -18,12 +18,13 @@ setup(
     zip_safe=True,
     maintainer='Texas Humanoids Controls',
     maintainer_email='noreply@github.com',
-    description='Camera-driven behaviors that command the walking policy over /cmd_vel',
+    description='Camera-driven following (AprilTag or person) that commands the walking policy over /cmd_vel',
     license='MIT',
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
             'tag_follower = th_autonomy.tag_follower:main',
+            'person_follower = th_autonomy.person_follower:main',
         ],
     },
 )

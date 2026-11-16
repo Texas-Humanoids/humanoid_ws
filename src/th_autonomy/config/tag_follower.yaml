@@ -16,7 +16,8 @@ tag_follower:
     target_id: -1                    # -1 = nearest tag of any id
     refine_corners: true
     decode_scale: 1                  # 1, 2, 4 or 8: decode the JPEG at 1/n size (faster, shorter range)
-    publish_debug_image: true        # ~/image/compressed, only while someone subscribes
+    publish_debug_image: true        # /follower/image/compressed, only while someone watches
+    status_namespace: /follower      # state, target and annotated image for the dashboard
 
     camera:
       # Calibrated intrinsics at the stream's full resolution (fx > 0 uses them).
@@ -28,6 +29,7 @@ tag_follower:
       # Otherwise a pinhole guess from the horizontal field of view. Bearing is
       # close either way; distance scales with this, so check it with a tape measure.
       hfov_deg: 90.0
+      rotation: 0                    # degrees clockwise to turn frames upright; 180 = mounted upside down
 
     follow:
       target_distance: 1.0           # m

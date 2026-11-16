@@ -211,7 +211,7 @@ def launch_pipeline(context):
                  '/policy/.*|/policy_bridge/.*|/cmd_vel|/gamepad/.*|' +
                  arg('imu_topic') + '|/.*/motor/.*|/joint_states|/tf|/tf_static|'
                  '/robot_description|/battery|/diagnostics|/robot/.*|/dashboard/.*|'
-                 '/mujoco_sim/.*|/tag_follower/(state|target)|/rosout'],
+                 '/mujoco_sim/.*|/follower/(state|target)|/rosout'],
             output='screen'))
     if arg('foxglove') == 'true':
         actions.append(IncludeLaunchDescription(
@@ -223,13 +223,14 @@ def launch_pipeline(context):
                 # The bench camera streams on the Jetson; there is none in sim.
                 'camera_url': '' if sim else arg('camera_url'),
             }.items()))
-    if arg('tag_follow') == 'true':
+    if arg('follow') != 'none':
         # The Foxglove stack already relays the camera to /camera/image/compressed.
         relay_here = arg('foxglove') != 'true' and not sim
         actions.append(IncludeLaunchDescription(
             PythonLaunchDescriptionSource(PathJoinSubstitution(
-                [FindPackageShare('th_autonomy'), 'launch', 'tag_follow.launch.py'])),
-            launch_arguments={'camera_url': arg('camera_url') if relay_here else ''}.items()))
+                [FindPackageShare('th_autonomy'), 'launch', 'follow.launch.py'])),
+            launch_arguments={'target': arg('follow'),
+                              'camera_url': arg('camera_url') if relay_here else ''}.items()))
     return actions
 
 
@@ -337,8 +338,8 @@ def generate_launch_description():
             'camera_url', default_value='http://localhost:8080/stream',
             description="MJPEG camera shown in Foxglove (tools/bench_camera); '' = none"),
         DeclareLaunchArgument(
-            'tag_follow', default_value='false', choices=['true', 'false'],
-            description='AprilTag following (th_autonomy): Y toggles it while walking'),
+            'follow', default_value='none', choices=['none', 'tag', 'person'],
+            description='Follow an AprilTag or a person with the camera (th_autonomy); Y toggles it while walking'),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(PathJoinSubstitution(
                 [FindPackageShare('gamepad_node'), 'launch', 'gamepad_node.launch.py'])),

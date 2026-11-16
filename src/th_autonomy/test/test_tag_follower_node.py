@@ -30,16 +30,16 @@ def tag_image(left, side):
 
 class Harness:
 
-    def __init__(self, ns):
+    def __init__(self, ns, node_class=TagFollower, extra=()):
         def topic(name):
             return f'/{ns}/{name}'
-        self.follower = TagFollower(parameter_overrides=[
+        self.follower = node_class(parameter_overrides=list(extra) + [
             Parameter('image_topic', value=topic('image')),
             Parameter('cmd_vel_topic', value=topic('cmd_vel')),
             Parameter('mode_topic', value=topic('mode')),
             Parameter('button_topic', value=topic('buttons')),
             Parameter('joy_topic', value=topic('joy')),
-            Parameter('tag_size', value=0.16),
+            Parameter('status_namespace', value=topic('follower')),
         ])
         self.node = Node(f'harness_{ns}')
         self.mode = self.node.create_publisher(String, topic('mode'), LATCHED)
@@ -50,7 +50,7 @@ class Harness:
         self.states = []
         self.node.create_subscription(Twist, topic('cmd_vel'), self.cmds.append, 100)
         self.node.create_subscription(
-            String, '/tag_follower/state', lambda m: self.states.append(m.data), LATCHED)
+            String, topic('follower/state'), lambda m: self.states.append(m.data), LATCHED)
         self.executor = SingleThreadedExecutor()
         self.executor.add_node(self.follower)
         self.executor.add_node(self.node)
