@@ -7,6 +7,7 @@
 #include <array>
 #include <stdexcept>
 #include <map>
+#include <thread>
 
 #include <net/if.h>
 #include <sys/ioctl.h>
@@ -208,16 +209,16 @@ private:
       start_motor_mit();
       return;
     }
-    if (!send_frame(
+    if (!settle(send_frame(
         make_can_id(kCommTypeStop, kHostCanId, static_cast<uint8_t>(motor_id_)),
-        encode_stop(true)) ||
-      !write_param_u8(kParamRunMode, kCspRunMode) ||
-      !write_param_float(kParamSpeedLimit, static_cast<float>(speed_limit_)) ||
-      !write_param_float(kParamCurrentLimit, static_cast<float>(current_limit_)) ||
-      !write_param_u32(kParamCanTimeout, can_timeout_counts(can_timeout_)) ||
-      !send_frame(
+        encode_stop(true))) ||
+      !settle(write_param_u8(kParamRunMode, kCspRunMode)) ||
+      !settle(write_param_float(kParamSpeedLimit, static_cast<float>(speed_limit_))) ||
+      !settle(write_param_float(kParamCurrentLimit, static_cast<float>(current_limit_))) ||
+      !settle(write_param_u32(kParamCanTimeout, can_timeout_counts(can_timeout_))) ||
+      !settle(send_frame(
         make_can_id(kCommTypeActiveReport, kHostCanId, static_cast<uint8_t>(motor_id_)),
-        encode_active_report(true)))
+        encode_active_report(true))))
     {
       throw std::runtime_error("CAN configuration write failed; refusing to enable");
     }
@@ -230,7 +231,7 @@ private:
     }
 
     target_position_ = current_position;
-    if (!write_param_float(kParamLocRef, current_position) || !send_enable_frame()) {
+    if (!settle(write_param_float(kParamLocRef, current_position)) || !settle(send_enable_frame())) {
       throw std::runtime_error("CAN startup write failed; refusing to continue");
     }
   }
@@ -239,22 +240,38 @@ private:
   void start_motor_mit()
   {
     target_time_ = {};
-    if (!send_frame(
+    if (!settle(send_frame(
         make_can_id(kCommTypeStop, kHostCanId, static_cast<uint8_t>(motor_id_)),
-        encode_stop(true)) ||
-      !write_param_u8(kParamRunMode, kMitRunMode) ||
-      !write_param_float(kParamTorqueLimit, static_cast<float>(torque_limit_)) ||
-      !write_param_u32(kParamCanTimeout, can_timeout_counts(can_timeout_)) ||
+        encode_stop(true))) ||
+      !settle(write_param_u8(kParamRunMode, kMitRunMode)) ||
+      !settle(write_param_float(kParamTorqueLimit, static_cast<float>(torque_limit_))) ||
+      !settle(write_param_u32(kParamCanTimeout, can_timeout_counts(can_timeout_))) ||
       // Each command gets a status reply, so the periodic broadcast only adds bus load.
-      !send_frame(
+      !settle(send_frame(
         make_can_id(kCommTypeActiveReport, kHostCanId, static_cast<uint8_t>(motor_id_)),
-        encode_active_report(false)) ||
-      !send_enable_frame())
+        encode_active_report(false))))
     {
       throw std::runtime_error("CAN configuration write failed; refusing to enable");
     }
-    if (!mit_exchange()) {
-      throw std::runtime_error("No status reply to the first MIT command; refusing to continue");
+    // A dropped enable leaves the drive in reset mode, applying no torque while every reply
+    // still arrives. Check the reply's mode, and enable once more before giving up.
+    for (int attempt = 0;; ++attempt) {
+      if (!settle(send_enable_frame())) {
+        throw std::runtime_error("CAN enable write failed; refusing to continue");
+      }
+      if (!mit_exchange()) {
+        throw std::runtime_error("No status reply to the first MIT command; refusing to continue");
+      }
+      if (status_.mode == kModeRunning) {
+        break;
+      }
+      if (attempt >= 1) {
+        throw std::runtime_error(
+                std::string("Motor did not enter run mode after enable (") +
+                mode_name(status_.mode) + "); refusing to continue");
+      }
+      RCLCPP_WARN(this->get_logger(), "Motor still in %s mode after enable; enabling again",
+        mode_name(status_.mode));
     }
     target_position_ = status_.position;
   }
@@ -509,6 +526,20 @@ private:
       return false;
     }
     return true;
+  }
+
+  // Setup frames sent back to back outrun the drive: an RS03 silently dropped some of them,
+  // including the enable, and stayed in reset mode at 0 Nm. 2 ms apart was enough on the
+  // bench; 5 ms leaves margin. Replies that arrive meanwhile update the status.
+  static constexpr std::chrono::milliseconds kSetupFrameGap{5};
+
+  bool settle(bool sent)
+  {
+    if (sent) {
+      std::this_thread::sleep_for(kSetupFrameGap);
+      drain_replies();
+    }
+    return sent;
   }
 
   bool send_enable_frame()

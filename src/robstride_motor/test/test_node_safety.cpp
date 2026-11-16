@@ -35,6 +35,8 @@ int socket_count = 0;
 float starting_position = 0.25f;
 uint8_t motor_id = 1;
 std::vector<can_frame> queued_frames;  // returned by read_frame before the reply
+std::vector<can_frame> read_only_frames;  // seen only by blocking reads, not by drains
+std::vector<std::chrono::steady_clock::time_point> sent_times;
 std::vector<can_frame> mit_replies;  // one moves to queued_frames per MIT command written
 
 int open_socket(int, int, int)
@@ -64,6 +66,7 @@ ssize_t write_frame(int, const void * data, size_t size)
   }
   const auto & frame = *static_cast<const can_frame *>(data);
   sent_frames.push_back(frame);
+  sent_times.push_back(std::chrono::steady_clock::now());
   if (((frame.can_id >> 24) & 0x1F) == robstride_motor::kCommTypeMotionControl &&
     !mit_replies.empty())
   {
@@ -86,6 +89,11 @@ ssize_t recv_frame(int, void * data, size_t size, int)
 
 ssize_t read_frame(int, void * data, size_t size)
 {
+  if (!read_only_frames.empty()) {
+    std::memcpy(data, &read_only_frames.front(), sizeof(can_frame));
+    read_only_frames.erase(read_only_frames.begin());
+    return static_cast<ssize_t>(size);
+  }
   if (!queued_frames.empty()) {
     std::memcpy(data, &queued_frames.front(), sizeof(can_frame));
     queued_frames.erase(queued_frames.begin());
@@ -156,6 +164,8 @@ protected:
     test_can::starting_position = 0.25f;
     test_can::motor_id = 1;
     test_can::queued_frames.clear();
+    test_can::read_only_frames.clear();
+    test_can::sent_times.clear();
     test_can::mit_replies.clear();
   }
 
@@ -260,15 +270,15 @@ TEST_F(NodeSafety, StatusAndFaultFramesDoNotDisturbTheStartingPositionRead)
       return f;
     };
   // A faulted status frame and a fault report from this motor, plus another motor's
-  // parameter reply that looks like the requested one.
-  test_can::queued_frames = {
+  // parameter reply that looks like the requested one, all arriving during the read.
+  test_can::read_only_frames = {
     frame(robstride_motor::kCommTypeStatus, (0x04u << 8) | 1, {0x7F, 0xFF, 0, 0, 0, 0, 0, 0}),
     frame(robstride_motor::kCommTypeFaultReport, 1, {0x01, 0, 0, 0, 0, 0, 0, 0}),
     frame(robstride_motor::kCommTypeParamRead, 2,
       robstride_motor::encode_param_float(robstride_motor::kParamMechPos, 3.0f)),
   };
   RobstrideMotorNode node(options());
-  EXPECT_TRUE(test_can::queued_frames.empty());
+  EXPECT_TRUE(test_can::read_only_frames.empty());
   bool saw_initial_target = false;
   for (const auto & sent : test_can::sent_frames) {
     std::array<uint8_t, 8> data;
@@ -377,4 +387,60 @@ TEST_F(NodeSafety, MitExchangeReadsItsOwnReplyNotAnEarlierLateOne)
   EXPECT_NEAR(node.status_.position, 0.5, 1e-3);
   EXPECT_NEAR(node.target_position_, 0.5, 1e-3);
   EXPECT_TRUE(test_can::queued_frames.empty());
+}
+
+namespace
+{
+can_frame mit_status(uint8_t mode, double position = 0.5)
+{
+  can_frame f{};
+  f.can_id = CAN_EFF_FLAG | (static_cast<uint32_t>(robstride_motor::kCommTypeStatus) << 24) |
+    (static_cast<uint32_t>(mode) << 22) | (1u << 8) | 0xFE;
+  f.can_dlc = 8;
+  const auto raw = static_cast<uint16_t>(std::lround((position / (4.0 * M_PI) + 1.0) * 32767.0));
+  f.data[0] = raw >> 8;
+  f.data[1] = raw & 0xFF;
+  return f;
+}
+
+rclcpp::NodeOptions mit_options()
+{
+  return rclcpp::NodeOptions().parameter_overrides({
+    rclcpp::Parameter("motor_id", int64_t{1}), rclcpp::Parameter("control_mode", "mit"),
+    rclcpp::Parameter("kp", 20.0), rclcpp::Parameter("kd", 1.0)});
+}
+}  // namespace
+
+TEST_F(NodeSafety, MitSetupFramesAreSpacedSoTheDriveKeepsUp)
+{
+  test_can::mit_replies = {mit_status(robstride_motor::kModeRunning)};
+  RobstrideMotorNode node(mit_options());
+  // Stop, run mode, torque limit, CAN timeout, active report, enable: each at least ~5 ms
+  // after the previous one (back to back, an RS03 dropped the enable).
+  ASSERT_GE(test_can::sent_times.size(), 7u);
+  for (size_t i = 1; i < 6; ++i) {
+    EXPECT_GE(test_can::sent_times[i] - test_can::sent_times[i - 1], std::chrono::milliseconds(4))
+      << "frame " << i;
+  }
+  EXPECT_EQ(node.status_.mode, robstride_motor::kModeRunning);
+}
+
+TEST_F(NodeSafety, MitEnablesAgainWhenTheDriveStaysInReset)
+{
+  test_can::mit_replies = {
+    mit_status(robstride_motor::kModeReset), mit_status(robstride_motor::kModeRunning)};
+  RobstrideMotorNode node(mit_options());
+  EXPECT_EQ(count_frames(robstride_motor::kCommTypeEnable), 2);
+  EXPECT_EQ(node.status_.mode, robstride_motor::kModeRunning);
+}
+
+TEST_F(NodeSafety, MitRefusesWhenTheDriveNeverEntersRunMode)
+{
+  test_can::mit_replies = {
+    mit_status(robstride_motor::kModeReset), mit_status(robstride_motor::kModeReset)};
+  EXPECT_THROW(RobstrideMotorNode node(mit_options()), std::runtime_error);
+  EXPECT_EQ(count_frames(robstride_motor::kCommTypeEnable), 2);
+  EXPECT_EQ(test_can::close_count, 1);
+  ASSERT_FALSE(test_can::sent_frames.empty());
+  EXPECT_EQ((test_can::sent_frames.back().can_id >> 24) & 0x1F, robstride_motor::kCommTypeStop);
 }
