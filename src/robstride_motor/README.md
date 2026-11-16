@@ -106,7 +106,8 @@ ros2 run robstride_motor robstride_motor_node --ros-args \
 | `motor/actual_velocity` | `std_msgs/Float64` | Publish | Rad/s, read from `mechVel` (`0x701B`) right after the position. |
 | `motor/actual_torque` | `std_msgs/Float64` | Publish | Nm, from the motor's status frames. |
 | `motor/temperature` | `std_msgs/Float64` | Publish | °C, from the motor's status frames. |
-| `motor/status` | `diagnostic_msgs/DiagnosticStatus` | Publish | Level OK (running), WARN (not running) or ERROR (faults), with mode, faults, the last fault report, temperature and torque as values. |
+| `motor/status` | `diagnostic_msgs/DiagnosticStatus` | Publish | Level OK (running), WARN (not running) or ERROR (faults), with mode, faults, the last fault report, temperature, torque and bus voltage as values. |
+| `motor/bus_voltage` | `std_msgs/Float64` | Publish | Supply (battery) voltage in V, about once a second. The node sends the parameter read (`0x701C`) without waiting; the reply is picked up with the next status frames, so the control exchange never waits on it. |
 | `motor/clear_faults` | `std_srvs/Trigger` | Service | Clears faults and re-enables at the current position (the same safe startup sequence). |
 
 Each poll first re-sends the current target (the watchdog keepalive), then reads position and velocity with a 5 ms reply timeout, so a silent motor skips a sample instead of stalling the node. Position and velocity are only published when both reads succeed. Torque, temperature and status are published each poll from the latest status frame, and stop (with a warning) if no status frame arrived in 200 ms.

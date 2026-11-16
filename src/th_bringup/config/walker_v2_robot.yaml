@@ -39,6 +39,17 @@ imu:
   rotation: [1.0, 0.0, 0.0, 0.0]
   world_frame: enu
 
+# Battery, for the Foxglove dashboard (th_foxglove). The motors report their supply voltage;
+# with the pack's series cell count the dashboard also estimates the charge left.
+battery:
+  # VATOSO 36 V 7.8 Ah Li-ion pack with a 30 A BMS: 10 cells in series, 42 V full.
+  # A bench supply (e.g. 48 V) reads as a full battery; null shows voltage only.
+  cells: 10
+  low_cell_voltage: 3.3   # per cell (33 V, ~5% left); below this the dashboard flags LOW
+  # The dashboard estimates the motors' current from their power (the BMS limit is 30 A);
+  # add the draw of everything else on the pack (Jetson, IMU, converters) once measured.
+  base_current: 0.0
+
 # Heading hold while walking without turning: the policy only sees its yaw rate, so it slowly
 # curves; the bridge adds wz = clamp(gain * heading error, +/-max_rate) from the gyro.
 # Tested in MuJoCo with v6 (training/walker_isaaclab/sim2sim/heading_hold_test.py): heading

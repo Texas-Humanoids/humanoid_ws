@@ -209,8 +209,20 @@ def launch_pipeline(context):
         actions.append(ExecuteProcess(
             cmd=['ros2', 'bag', 'record', '--regex',
                  '/policy/.*|/policy_bridge/.*|/cmd_vel|/gamepad/.*|' +
-                 arg('imu_topic') + '|/.*/motor/.*'],
+                 arg('imu_topic') + '|/.*/motor/.*|/joint_states|/tf|/tf_static|'
+                 '/robot_description|/battery|/diagnostics|/robot/.*|/dashboard/.*|'
+                 '/mujoco_sim/.*|/rosout'],
             output='screen'))
+    if arg('foxglove') == 'true':
+        actions.append(IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(PathJoinSubstitution(
+                [FindPackageShare('th_foxglove'), 'launch', 'foxglove.launch.py'])),
+            launch_arguments={
+                'robot_config': arg('motors_config'),
+                'imu_topic': arg('imu_topic'),
+                # The bench camera streams on the Jetson; there is none in sim.
+                'camera_url': '' if sim else arg('camera_url'),
+            }.items()))
     return actions
 
 
@@ -311,6 +323,12 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'sim_stream_to', default_value='',
             description='host:port to stream sim state to tools/walker/sim_viewer.py'),
+        DeclareLaunchArgument(
+            'foxglove', default_value='true', choices=['true', 'false'],
+            description='Start the Foxglove dashboard backend (th_foxglove) on port 8765'),
+        DeclareLaunchArgument(
+            'camera_url', default_value='http://localhost:8080/stream',
+            description="MJPEG camera shown in Foxglove (tools/bench_camera); '' = none"),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(PathJoinSubstitution(
                 [FindPackageShare('gamepad_node'), 'launch', 'gamepad_node.launch.py'])),

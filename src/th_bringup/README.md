@@ -26,6 +26,8 @@ ros2 launch th_bringup robot.launch.py   # run from the repo root (model path is
 | `model_path` | `policies/policy_humanoid.onnx` | ONNX checkpoint |
 | `imu_topic` | `/imu/data` | `sensor_msgs/Imu` source |
 | `require_imu` | `true` | `false` assumes upright and still (bench tests without an IMU) |
+| `foxglove` | `true` | Start the [Foxglove dashboard](../th_foxglove/README.md) backend on port 8765 |
+| `camera_url` | `http://localhost:8080/stream` | MJPEG camera shown in Foxglove (the bench camera); `''` = none. Off in sim. |
 
 Hold **LB** and use the sticks to command velocity. Press **START** to send
 policy targets to the motors and **BACK** to stop sending them (the motors

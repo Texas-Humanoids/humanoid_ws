@@ -6,6 +6,7 @@ policy_bridge and policy_node run unchanged against a simulated WalkerV2:
   /<ns>/motor/target_position  (sub, motor space)
   /<ns>/motor/actual_position  (pub, motor space, feedback_rate)
   /<ns>/motor/actual_velocity  (pub, motor space, feedback_rate)
+  /<ns>/motor/actual_torque    (pub, motor space, feedback_rate; the PD torque applied)
   /imu/data                    (pub, sensor_msgs/Imu, imu_rate, frame per the robot yaml)
   ~/base_pose                  (pub, ground-truth base_link pose in the world, 50 Hz)
 
@@ -107,12 +108,14 @@ class MujocoSim(Node):
         self.lock = threading.Lock()
         self.reset()
 
-        self.position_pubs, self.velocity_pubs = [], []
+        self.position_pubs, self.velocity_pubs, self.torque_pubs = [], [], []
         for i, ns in enumerate(namespaces):
             self.position_pubs.append(
                 self.create_publisher(Float64, ns + '/motor/actual_position', 10))
             self.velocity_pubs.append(
                 self.create_publisher(Float64, ns + '/motor/actual_velocity', 10))
+            self.torque_pubs.append(
+                self.create_publisher(Float64, ns + '/motor/actual_torque', 10))
             self.create_subscription(
                 Float64, ns + '/motor/target_position',
                 lambda msg, i=i: self.on_target(i, msg), 10)
@@ -239,9 +242,11 @@ class MujocoSim(Node):
     def publish_feedback(self):
         position, velocity = self.motors.motor_feedback(
             self.data.qpos[self.qadr], self.data.qvel[self.vadr])
+        torque = self.motors.direction * self.data.ctrl[self.act]  # joint -> motor space
         for i in range(len(self.joints)):
             self.position_pubs[i].publish(Float64(data=float(position[i])))
             self.velocity_pubs[i].publish(Float64(data=float(velocity[i])))
+            self.torque_pubs[i].publish(Float64(data=float(torque[i])))
 
     def publish_pose(self):
         msg = PoseStamped()

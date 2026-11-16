@@ -123,6 +123,8 @@ public:
       this->create_publisher<std_msgs::msg::Float64>("motor/actual_torque", 10);
     temperature_publisher_ =
       this->create_publisher<std_msgs::msg::Float64>("motor/temperature", 10);
+    bus_voltage_publisher_ =
+      this->create_publisher<std_msgs::msg::Float64>("motor/bus_voltage", 10);
     status_publisher_ =
       this->create_publisher<diagnostic_msgs::msg::DiagnosticStatus>("motor/status", 10);
     clear_faults_service_ = this->create_service<std_srvs::srv::Trigger>(
@@ -334,6 +336,12 @@ private:
       on_status(decode_status(
           arb, data, motor_limits_.position_max, motor_limits_.velocity_max,
           motor_limits_.torque_max));
+    } else if (type == kCommTypeParamRead && decode_param_index(data) == kParamVbus) {
+      const float volts = decode_param_float(data);
+      if (std::isfinite(volts)) {
+        bus_voltage_ = volts;
+        bus_voltage_time_ = std::chrono::steady_clock::now();
+      }
     } else if (type == kCommTypeFaultReport) {
       on_fault_report(describe_fault_report(data));
     }
@@ -400,6 +408,11 @@ private:
 
   MotorStatus status_{};
   std::chrono::steady_clock::time_point status_time_{};
+  // Supply voltage, read about once a second without waiting for the reply (see
+  // request_bus_voltage); the reply is picked up by handle_frame with the status frames.
+  double bus_voltage_ = std::nan("");
+  std::chrono::steady_clock::time_point bus_voltage_time_{};
+  std::chrono::steady_clock::time_point bus_voltage_request_{};
   bool have_status_ = false;
   std::string fault_report_;
 
@@ -439,6 +452,7 @@ private:
 
   rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr torque_publisher_;
   rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr temperature_publisher_;
+  rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr bus_voltage_publisher_;
   rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticStatus>::SharedPtr status_publisher_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr clear_faults_service_;
 
@@ -613,6 +627,20 @@ private:
     }
   }
 
+  // Asks for the supply voltage at most once a second. Fire-and-forget: the reply arrives
+  // within a few ms and handle_frame stores it, so the control exchange never waits on it.
+  void request_bus_voltage()
+  {
+    const auto now = std::chrono::steady_clock::now();
+    if (now - bus_voltage_request_ < std::chrono::seconds(1)) {
+      return;
+    }
+    bus_voltage_request_ = now;
+    send_frame(
+      make_can_id(kCommTypeParamRead, kHostCanId, static_cast<uint8_t>(motor_id_)),
+      encode_param_index(kParamVbus));
+  }
+
   void publish_status()
   {
     if (!have_status_ ||
@@ -651,6 +679,11 @@ private:
     value("fault_report", fault_report_.empty() ? "none" : fault_report_);
     value("temperature_c", std::to_string(status_.temperature));
     value("torque_nm", std::to_string(status_.torque));
+    if (std::chrono::steady_clock::now() - bus_voltage_time_ < std::chrono::seconds(3)) {
+      value("bus_voltage_v", std::to_string(bus_voltage_));
+      msg.data = bus_voltage_;
+      bus_voltage_publisher_->publish(msg);
+    }
     status_publisher_->publish(diagnostic);
   }
 
@@ -665,6 +698,7 @@ private:
         RCLCPP_WARN_THROTTLE(
           this->get_logger(), *this->get_clock(), 2000, "No status reply from the motor");
       }
+      request_bus_voltage();
       publish_status();
       RCLCPP_INFO_THROTTLE(
         this->get_logger(), *this->get_clock(), 2000,
@@ -682,6 +716,7 @@ private:
       read_param_float(kParamMechPos, position, kPollReadTimeout) &&
       read_param_float(kParamMechVel, velocity, kPollReadTimeout) &&
       std::isfinite(position) && std::isfinite(velocity);
+    request_bus_voltage();
     publish_status();
     if (!have_feedback) {
       return;
