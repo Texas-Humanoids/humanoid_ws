@@ -20,14 +20,16 @@ Outputs:
   /diagnostics                   diagnostic_msgs/DiagnosticArray  battery, bridge, IMU, motors
   /tf                            world -> base_link: the sim's ground-truth pose when running
                                  in MuJoCo, otherwise the IMU orientation at base_height
-                                 (no position estimate on hardware)
+                                 (no position estimate on hardware); world -> base_footprint
+                                 (base_link on the floor, heading only) for the top-down views
+  /dashboard/command, /dashboard/lean   visualization_msgs/MarkerArray (see dashboard.py)
 """
 
 import math
 import time
 
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
-from geometry_msgs.msg import PoseStamped, TransformStamped
+from geometry_msgs.msg import PoseStamped, TransformStamped, Twist
 import rclpy
 import rclpy.executors
 from rclpy.node import Node
@@ -36,8 +38,9 @@ from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_profi
 from sensor_msgs.msg import BatteryState, Imu
 from std_msgs.msg import Float64, String
 from tf2_ros import TransformBroadcaster
+from visualization_msgs.msg import MarkerArray
 
-from th_foxglove import telemetry
+from th_foxglove import dashboard, telemetry
 
 # DiagnosticStatus levels as ints (rclpy's DiagnosticStatus.OK etc. are one-byte bytes objects).
 OK, WARN, ERROR, STALE = 0, 1, 2, 3
@@ -93,6 +96,8 @@ class RobotMonitor(Node):
         self.base_height = float(p('base_height', 0.66).value)
         self.world_frame = p('world_frame', 'world').value
         self.base_frame = p('base_frame', 'base_link').value
+        self.footprint_frame = p('footprint_frame', 'base_footprint').value
+        self.max_tilt_deg = math.degrees(float(p('max_tilt', 1.0).value))
 
         self.motors = [Motor(j, ns) for j, ns in zip(joints, namespaces)]
         for motor in self.motors:
@@ -109,6 +114,13 @@ class RobotMonitor(Node):
         self.mode = Reading()
         self.imu = Reading()
         self.sim_pose = Reading()
+        self.command = Reading()
+        self.create_subscription(
+            Twist, p('cmd_vel_topic', '/cmd_vel').value,
+            lambda msg: self.command.set((msg.linear.x, msg.linear.y, msg.angular.z)), 10)
+        self.velocity = dashboard.VelocityEstimate()
+        self.measured_velocity = None
+        self.lean_trail = []
         self.create_subscription(
             String, p('mode_topic', '/policy_bridge/mode').value,
             lambda msg: self.mode.set(msg.data),
@@ -131,6 +143,9 @@ class RobotMonitor(Node):
         self.summary_pub = self.create_publisher(DiagnosticStatus, '/robot/summary', 10)
         self.diagnostics_pub = self.create_publisher(DiagnosticArray, '/diagnostics', 10)
         self.tf = TransformBroadcaster(self)
+        self.command_markers_pub = self.create_publisher(MarkerArray, '/dashboard/command', 10)
+        self.lean_markers_pub = self.create_publisher(MarkerArray, '/dashboard/lean', 10)
+        self.create_timer(0.05, self.publish_views)
         self.imu_count_at = (0, time.monotonic())
         self.imu_rate = 0.0
 
@@ -163,15 +178,44 @@ class RobotMonitor(Node):
         return (0.0, 0.0, self.base_height), (1.0, 0.0, 0.0, 0.0), 'none'
 
     def publish_pose(self):
-        position, q, _ = self.base_pose()
+        position, q, source = self.base_pose()
+        stamp = self.get_clock().now().to_msg()
         t = TransformStamped()
-        t.header.stamp = self.get_clock().now().to_msg()
+        t.header.stamp = stamp
         t.header.frame_id = self.world_frame
         t.child_frame_id = self.base_frame
         t.transform.translation.x, t.transform.translation.y, t.transform.translation.z = position
         r = t.transform.rotation
         r.w, r.x, r.y, r.z = q
-        self.tf.sendTransform(t)
+        yaw = dashboard.yaw_of(q)
+        f = TransformStamped()
+        f.header.stamp = stamp
+        f.header.frame_id = self.world_frame
+        f.child_frame_id = self.footprint_frame
+        f.transform.translation.x, f.transform.translation.y = position[0], position[1]
+        f.transform.rotation.w, f.transform.rotation.z = math.cos(yaw / 2), math.sin(yaw / 2)
+        self.tf.sendTransform([t, f])
+        if source == 'sim':
+            self.measured_velocity = self.velocity.update(
+                time.monotonic(), position[0], position[1], yaw)
+        else:
+            self.velocity.reset()
+            self.measured_velocity = None
+
+    def publish_views(self):
+        """Top-down command and lean views, 20 Hz."""
+        stamp = self.get_clock().now().to_msg()
+        command = self.command.get(0.5, (0.0, 0.0, 0.0))  # the bridge treats stale as stop
+        self.command_markers_pub.publish(dashboard.command_markers(
+            self.footprint_frame, stamp, command, self.measured_velocity))
+        _, q, source = self.base_pose()
+        lean = telemetry.lean(q) if source != 'none' else None
+        if lean is not None:
+            self.lean_trail = (self.lean_trail + [lean])[-40:]  # last 2 s
+        else:
+            self.lean_trail = []
+        self.lean_markers_pub.publish(dashboard.lean_markers(
+            self.footprint_frame, stamp, lean, self.lean_trail, self.max_tilt_deg))
 
     # -- 10 Hz numbers ----------------------------------------------------------------------
 

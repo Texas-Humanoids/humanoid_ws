@@ -49,17 +49,18 @@ nothing extra to run on the robot.
 
 ## What the layout shows
 
-**Overview**: the robot and the numbers you watch while it runs.
+**Overview**: the robot and what it is doing right now.
 
 | Panel | Source | What it tells you |
 |---|---|---|
-| Robot | `/robot_description`, `/tf` | The WalkerV2 model with every joint at its measured angle. In sim the base follows MuJoCo's ground truth; on hardware it tilts with the IMU at a fixed height (no position estimate yet). |
+| Robot | `/robot_description`, `/tf` | The WalkerV2 model with every joint at its measured angle, seen from the same three-quarter angle as it turns. In sim the base follows MuJoCo's ground truth; on hardware it tilts with the IMU at a fixed height (no position estimate yet). |
+| Command radar | `/dashboard/command` | Top-down, robot's forward = up. Blue arrow: commanded walking velocity; green arrow: how the base actually moves (sim only for now); orange arc: turn command. Rings at 0.25 and 0.5 m/s. |
+| Lean level | `/dashboard/lean` | Top-down bubble level: the dot sits where the body leans (forward = up, left = left), with a 2 s trail to show sway. Green under 10°, yellow under 25°, red beyond; the red ring is the 57° fall cutoff. |
 | State | `/policy_bridge/mode` | DISARMED (red, motors damp) / STAND (yellow) / WALK (green) |
-| Readings table | `/robot/summary` | Battery (V and %), motor power, tilt, forward/left lean and hottest motor, as text. Battery and temperature show `-` in sim. |
-| Speed command | `/cmd_vel` | Forward, sideways and turn command from the stick |
-| Lean | `/robot/lean_*_deg` | Forward (nose down +) and left (left side down +) lean, fixed at ±30°; the bridge disarms at 57° tilt |
+| Battery, Motor power gauges | `/robot/battery_voltage`, `/robot/mechanical_power` | 30-42 V for the 10S pack; 0-300 W of motor work. Battery is empty in sim. |
+| Readings table | `/robot/summary` | The exact numbers: battery (V and %), motor power, tilt, lean, hottest motor. |
 | Camera | `/camera/image/compressed` | The bench camera ([tools/bench_camera](../../tools/bench_camera/README.md)) |
-| Health | `/diagnostics` | One row per motor (faults, mode, temperature, torque, bus voltage), plus battery, IMU rate and bridge mode; problems sort to the top. Click a row for details. |
+| Health | `/diagnostics` | One row per motor (faults, mode, temperature, torque, bus voltage), plus battery, IMU rate and bridge mode; problems sort to the top. |
 
 **Joints**: one plot per joint (hip pitch, roll, yaw, knee, ankle), each with
 the left (blue) and right (orange) leg, measured as a solid line and the policy

@@ -2,8 +2,8 @@
   "configById": {
     "3D!robot": {
       "foxglovePanelTitle": "Robot",
-      "followTf": "base_link",
-      "followMode": "follow-position",
+      "followTf": "base_footprint",
+      "followMode": "follow-pose",
       "cameraState": {
         "perspective": true,
         "distance": 2.4,
@@ -12,7 +12,7 @@
         "targetOffset": [
           0,
           0,
-          -0.15
+          0.5
         ],
         "target": [
           0,
@@ -44,6 +44,9 @@
           "visible": false
         },
         "frame:base_link": {
+          "visible": false
+        },
+        "frame:base_footprint": {
           "visible": false
         },
         "frame:imu_link": {
@@ -89,6 +92,12 @@
         },
         "/tf_static": {
           "visible": true
+        },
+        "/dashboard/command": {
+          "visible": false
+        },
+        "/dashboard/lean": {
+          "visible": false
         }
       },
       "layers": {
@@ -205,76 +214,6 @@
       "foxglovePanelTitle": "Now",
       "topicPath": "/robot/summary.values"
     },
-    "Plot!command": {
-      "foxglovePanelTitle": "Speed command",
-      "paths": [
-        {
-          "value": "/cmd_vel.linear.x",
-          "enabled": true,
-          "timestampMethod": "receiveTime",
-          "label": "forward m/s",
-          "color": "#4e98e2",
-          "lineSize": 2
-        },
-        {
-          "value": "/cmd_vel.linear.y",
-          "enabled": true,
-          "timestampMethod": "receiveTime",
-          "label": "left m/s",
-          "color": "#61cbff",
-          "lineSize": 2
-        },
-        {
-          "value": "/cmd_vel.angular.z",
-          "enabled": true,
-          "timestampMethod": "receiveTime",
-          "label": "turn rad/s",
-          "color": "#5cd6a9",
-          "lineSize": 2
-        }
-      ],
-      "showLegend": true,
-      "legendDisplay": "floating",
-      "showPlotValuesInLegend": false,
-      "showXAxisLabels": true,
-      "showYAxisLabels": true,
-      "isSynced": true,
-      "xAxisVal": "timestamp",
-      "followingViewWidth": 30,
-      "sidebarDimension": 240
-    },
-    "Plot!lean": {
-      "foxglovePanelTitle": "Lean (deg; bridge disarms at 57)",
-      "paths": [
-        {
-          "value": "/robot/lean_forward_deg.data",
-          "enabled": true,
-          "timestampMethod": "receiveTime",
-          "label": "forward",
-          "color": "#f5774d",
-          "lineSize": 2
-        },
-        {
-          "value": "/robot/lean_left_deg.data",
-          "enabled": true,
-          "timestampMethod": "receiveTime",
-          "label": "left",
-          "color": "#e05ea8",
-          "lineSize": 2
-        }
-      ],
-      "showLegend": true,
-      "legendDisplay": "floating",
-      "showPlotValuesInLegend": false,
-      "showXAxisLabels": true,
-      "showYAxisLabels": true,
-      "isSynced": true,
-      "xAxisVal": "timestamp",
-      "followingViewWidth": 30,
-      "sidebarDimension": 240,
-      "minYValue": -30,
-      "maxYValue": 30
-    },
     "DiagnosticSummary!health": {
       "foxglovePanelTitle": "Health",
       "topicToRender": "/diagnostics",
@@ -283,6 +222,246 @@
       "sortByLevel": true,
       "minLevel": 0,
       "secondsUntilStale": 5
+    },
+    "3D!command": {
+      "foxglovePanelTitle": "Command (blue) vs measured (green), turn (orange)",
+      "followTf": "base_footprint",
+      "followMode": "follow-pose",
+      "cameraState": {
+        "perspective": false,
+        "distance": 1.75,
+        "phi": 0.01,
+        "thetaOffset": 90.0,
+        "targetOffset": [
+          0,
+          0,
+          0
+        ],
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "targetOrientation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "fovy": 45,
+        "near": 0.01,
+        "far": 5000
+      },
+      "scene": {
+        "enableStats": false,
+        "backgroundColor": "#1d2026",
+        "transforms": {
+          "showLabel": false,
+          "axisSize": 0.01,
+          "lineWidth": 0
+        }
+      },
+      "transforms": {
+        "frame:world": {
+          "visible": false
+        },
+        "frame:base_link": {
+          "visible": false
+        },
+        "frame:base_footprint": {
+          "visible": false
+        },
+        "frame:imu_link": {
+          "visible": false
+        },
+        "frame:left_hip_pitch_link": {
+          "visible": false
+        },
+        "frame:left_hip_roll_link": {
+          "visible": false
+        },
+        "frame:left_thigh_link": {
+          "visible": false
+        },
+        "frame:left_shank_link": {
+          "visible": false
+        },
+        "frame:left_foot_link": {
+          "visible": false
+        },
+        "frame:right_hip_pitch_link": {
+          "visible": false
+        },
+        "frame:right_hip_roll_link": {
+          "visible": false
+        },
+        "frame:right_thigh_link": {
+          "visible": false
+        },
+        "frame:right_shank_link": {
+          "visible": false
+        },
+        "frame:right_foot_link": {
+          "visible": false
+        }
+      },
+      "topics": {
+        "/dashboard/command": {
+          "visible": true
+        },
+        "/robot_description": {
+          "visible": false
+        }
+      },
+      "layers": {},
+      "publish": {
+        "type": "point",
+        "poseTopic": "/move_base_simple/goal",
+        "pointTopic": "/clicked_point",
+        "poseEstimateTopic": "/initialpose",
+        "poseEstimateXDeviation": 0.5,
+        "poseEstimateYDeviation": 0.5,
+        "poseEstimateThetaDeviation": 0.26179939
+      },
+      "synchronize": false,
+      "imageMode": {}
+    },
+    "3D!lean": {
+      "foxglovePanelTitle": "Lean (bubble level; red = fall cutoff)",
+      "followTf": "base_footprint",
+      "followMode": "follow-pose",
+      "cameraState": {
+        "perspective": false,
+        "distance": 1.4,
+        "phi": 0.01,
+        "thetaOffset": 90.0,
+        "targetOffset": [
+          0,
+          0,
+          0
+        ],
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "targetOrientation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "fovy": 45,
+        "near": 0.01,
+        "far": 5000
+      },
+      "scene": {
+        "enableStats": false,
+        "backgroundColor": "#1d2026",
+        "transforms": {
+          "showLabel": false,
+          "axisSize": 0.01,
+          "lineWidth": 0
+        }
+      },
+      "transforms": {
+        "frame:world": {
+          "visible": false
+        },
+        "frame:base_link": {
+          "visible": false
+        },
+        "frame:base_footprint": {
+          "visible": false
+        },
+        "frame:imu_link": {
+          "visible": false
+        },
+        "frame:left_hip_pitch_link": {
+          "visible": false
+        },
+        "frame:left_hip_roll_link": {
+          "visible": false
+        },
+        "frame:left_thigh_link": {
+          "visible": false
+        },
+        "frame:left_shank_link": {
+          "visible": false
+        },
+        "frame:left_foot_link": {
+          "visible": false
+        },
+        "frame:right_hip_pitch_link": {
+          "visible": false
+        },
+        "frame:right_hip_roll_link": {
+          "visible": false
+        },
+        "frame:right_thigh_link": {
+          "visible": false
+        },
+        "frame:right_shank_link": {
+          "visible": false
+        },
+        "frame:right_foot_link": {
+          "visible": false
+        }
+      },
+      "topics": {
+        "/dashboard/lean": {
+          "visible": true
+        },
+        "/robot_description": {
+          "visible": false
+        }
+      },
+      "layers": {},
+      "publish": {
+        "type": "point",
+        "poseTopic": "/move_base_simple/goal",
+        "pointTopic": "/clicked_point",
+        "poseEstimateTopic": "/initialpose",
+        "poseEstimateXDeviation": 0.5,
+        "poseEstimateYDeviation": 0.5,
+        "poseEstimateThetaDeviation": 0.26179939
+      },
+      "synchronize": false,
+      "imageMode": {}
+    },
+    "Gauge!battery": {
+      "foxglovePanelTitle": "Battery (30-42 V)",
+      "path": "/robot/battery_voltage.data",
+      "minValue": 30,
+      "maxValue": 42,
+      "colorMap": "red-yellow-green",
+      "colorMode": "colormap",
+      "gradient": [
+        "#0000ff",
+        "#ff00ff"
+      ],
+      "reverse": false,
+      "style": "dial",
+      "showTicks": true,
+      "tickInterval": 2.0,
+      "reverseDirection": false
+    },
+    "Gauge!power": {
+      "foxglovePanelTitle": "Motor power (0-300 W)",
+      "path": "/robot/mechanical_power.data",
+      "minValue": 0,
+      "maxValue": 300,
+      "colorMap": "red-yellow-green",
+      "colorMode": "colormap",
+      "gradient": [
+        "#0000ff",
+        "#ff00ff"
+      ],
+      "reverse": true,
+      "style": "dial",
+      "showTicks": true,
+      "tickInterval": 50.0,
+      "reverseDirection": false
     },
     "Plot!hip_pitch": {
       "foxglovePanelTitle": "Hip pitch (rad)",
@@ -674,29 +853,39 @@
               "first": "3D!robot",
               "second": {
                 "direction": "row",
-                "first": "Plot!command",
-                "second": "Plot!lean",
+                "first": "3D!command",
+                "second": "3D!lean",
                 "splitPercentage": 50
               },
-              "splitPercentage": 70
+              "splitPercentage": 60
             },
             "second": {
               "direction": "column",
-              "first": {
-                "direction": "column",
-                "first": "Indicator!mode",
-                "second": "Table!summary",
-                "splitPercentage": 22
-              },
+              "first": "Indicator!mode",
               "second": {
                 "direction": "column",
-                "first": "Image!camera",
-                "second": "DiagnosticSummary!health",
-                "splitPercentage": 45
+                "first": {
+                  "direction": "row",
+                  "first": "Gauge!battery",
+                  "second": "Gauge!power",
+                  "splitPercentage": 50
+                },
+                "second": {
+                  "direction": "column",
+                  "first": "Table!summary",
+                  "second": {
+                    "direction": "column",
+                    "first": "Image!camera",
+                    "second": "DiagnosticSummary!health",
+                    "splitPercentage": 50
+                  },
+                  "splitPercentage": 38
+                },
+                "splitPercentage": 24
               },
-              "splitPercentage": 40
+              "splitPercentage": 9
             },
-            "splitPercentage": 62
+            "splitPercentage": 60
           }
         },
         {

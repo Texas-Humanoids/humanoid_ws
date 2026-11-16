@@ -93,3 +93,30 @@ def test_diagnostic_levels_round_trip():
     assert msg.level == b'\x01'
     assert level_of(msg) == WARN
     assert [(kv.key, kv.value) for kv in msg.values] == [('voltage_v', '40.1')]
+
+
+def test_dashboard_geometry():
+    from th_foxglove import dashboard as d
+    q = (math.cos(0.3), 0.0, 0.0, math.sin(0.3))  # 0.6 rad yaw
+    assert d.yaw_of(q) == pytest.approx(0.6)
+    arc = d.circle(1.0, start=0.0, sweep=math.pi / 2)
+    assert arc[0] == pytest.approx((1.0, 0.0)) and arc[-1] == pytest.approx((0.0, 1.0), abs=1e-9)
+    # Walking forward at 0.4 m/s while facing +y in the world reads as forward.
+    v = d.VelocityEstimate()
+    for i in range(20):
+        out = v.update(i * 0.02, 0.0, 0.4 * i * 0.02, math.pi / 2)
+    assert out == pytest.approx((0.4, 0.0), abs=1e-9)
+
+
+def test_dashboard_markers_build():
+    from th_foxglove import dashboard as d
+    from builtin_interfaces.msg import Time
+    cmd = d.command_markers('base_footprint', Time(), (0.3, 0.0, 0.4), (0.25, 0.01))
+    from visualization_msgs.msg import Marker
+    kinds = [m.type for m in cmd.markers if m.action == Marker.ADD]
+    assert kinds.count(Marker.ARROW) == 2  # command and measured
+    assert cmd.markers[0].action == Marker.DELETEALL  # clears last update's leftovers
+    assert [m.id for m in cmd.markers[1:]] == list(range(len(cmd.markers) - 1))
+    lean = d.lean_markers('base_footprint', Time(), (80.0, 0.0), [(0, 0), (80.0, 0.0)], 57.3)
+    dot = [m for m in lean.markers if m.type == Marker.SPHERE][-1]
+    assert dot.pose.position.x == pytest.approx(57.3 * 1.1 * d.LEAN_SCALE)  # a fall stays on screen
