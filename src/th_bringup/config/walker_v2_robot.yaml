@@ -62,7 +62,7 @@ motors:
   - joint: left_hip_pitch_joint
     motor_id: 11  # UUID 3f39300290613713
     motor_model: RS03
-    can_interface: can_usb
+    can_interface: can_left
     direction: 1.0
     offset: null
     lower: -0.7854
@@ -70,7 +70,7 @@ motors:
   - joint: left_hip_roll_joint
     motor_id: 12  # UUID 484193c79c90b014
     motor_model: RS03
-    can_interface: can_usb
+    can_interface: can_left
     direction: 1.0
     offset: null
     lower: -0.35
@@ -78,7 +78,7 @@ motors:
   - joint: left_hip_yaw_joint
     motor_id: 13  # UUID 0a4030209c233711
     motor_model: RS02
-    can_interface: can_usb
+    can_interface: can_left
     direction: 1.0
     offset: null
     lower: -0.7854
@@ -86,7 +86,7 @@ motors:
   - joint: left_knee_pitch_joint
     motor_id: 14  # UUID 8c8938000c333413
     motor_model: RS03
-    can_interface: can_usb
+    can_interface: can_left
     direction: 1.0
     offset: null
     lower: 0.0
@@ -94,7 +94,7 @@ motors:
   - joint: left_ankle_pitch_joint
     motor_id: 15  # UUID b7453b4e2071300b
     motor_model: RS06
-    can_interface: can_usb
+    can_interface: can_left
     direction: 1.0
     offset: null
     lower: -1.5708
@@ -106,7 +106,7 @@ motors:
   - joint: right_hip_pitch_joint
     motor_id: 21  # UUID bd4393c79c90b014
     motor_model: RS03
-    can_interface: can_usb
+    can_interface: can_right
     direction: 1.0
     offset: null
     lower: -0.7854
@@ -114,7 +114,7 @@ motors:
   - joint: right_hip_roll_joint
     motor_id: 22  # UUID 9e8d93c79c90b014
     motor_model: RS03
-    can_interface: can_usb
+    can_interface: can_right
     direction: 1.0
     offset: null
     lower: -0.7854
@@ -122,15 +122,15 @@ motors:
   - joint: right_hip_yaw_joint
     motor_id: 23  # UUID 1a8930209c23370f
     motor_model: RS02
-    can_interface: can_usb
+    can_interface: can_right
     direction: 1.0
     offset: null
     lower: -0.7854
     upper: 0.7854
   - joint: right_knee_pitch_joint
-    motor_id: null
+    motor_id: 24  # UUID 108038009023b703
     motor_model: RS03
-    can_interface: can_usb
+    can_interface: can_right
     direction: 1.0
     offset: null
     lower: 0.0
@@ -138,7 +138,7 @@ motors:
   - joint: right_ankle_pitch_joint
     motor_id: 25  # UUID 6e453b4e2071300b
     motor_model: RS06
-    can_interface: can_usb
+    can_interface: can_right
     direction: 1.0
     offset: null
     lower: -1.5708
