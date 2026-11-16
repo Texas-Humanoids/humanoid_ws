@@ -1013,6 +1013,154 @@
       "showName": true,
       "showSourceLocation": false
     },
+    "Image!follow": {
+      "foxglovePanelTitle": "Follower view \u00b7 green = followed",
+      "cameraState": {
+        "distance": 20,
+        "perspective": true,
+        "phi": 60,
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "targetOffset": [
+          0,
+          0,
+          0
+        ],
+        "targetOrientation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "thetaOffset": 45,
+        "fovy": 45,
+        "near": 0.5,
+        "far": 5000
+      },
+      "followMode": "follow-pose",
+      "scene": {},
+      "transforms": {},
+      "topics": {},
+      "layers": {},
+      "publish": {
+        "type": "point",
+        "poseTopic": "/move_base_simple/goal",
+        "pointTopic": "/clicked_point",
+        "poseEstimateTopic": "/initialpose",
+        "poseEstimateXDeviation": 0.5,
+        "poseEstimateYDeviation": 0.5,
+        "poseEstimateThetaDeviation": 0.26179939
+      },
+      "synchronize": false,
+      "imageMode": {
+        "imageTopic": "/follower/image/compressed"
+      }
+    },
+    "Indicator!follow": {
+      "foxglovePanelTitle": "Follower",
+      "path": "/follower/state.data",
+      "style": "background",
+      "fallbackColor": "#3a3d44",
+      "fallbackLabel": "NO DATA",
+      "fontSize": 26,
+      "rules": [
+        {
+          "operator": "=",
+          "rawValue": "TRACKING",
+          "color": "#2fa84f",
+          "label": "TRACKING"
+        },
+        {
+          "operator": "=",
+          "rawValue": "LOST",
+          "color": "#d39b00",
+          "label": "LOST"
+        },
+        {
+          "operator": "=",
+          "rawValue": "SEARCH",
+          "color": "#2f6fb0",
+          "label": "SEARCH"
+        },
+        {
+          "operator": "=",
+          "rawValue": "OVERRIDE",
+          "color": "#7a4fb0",
+          "label": "OVERRIDE"
+        },
+        {
+          "operator": "=",
+          "rawValue": "DISABLED",
+          "color": "#3a3d44",
+          "label": "DISABLED"
+        }
+      ]
+    },
+    "Plot!follow_target": {
+      "foxglovePanelTitle": "Target (m): ahead, right of center",
+      "paths": [
+        {
+          "value": "/follower/target.point.z",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "ahead",
+          "color": "#5cd6a9",
+          "lineSize": 2
+        },
+        {
+          "value": "/follower/target.point.x",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "right",
+          "color": "#e05ea8",
+          "lineSize": 1.5
+        }
+      ],
+      "showLegend": true,
+      "legendDisplay": "floating",
+      "showPlotValuesInLegend": false,
+      "showXAxisLabels": true,
+      "showYAxisLabels": true,
+      "isSynced": true,
+      "xAxisVal": "timestamp",
+      "followingViewWidth": 30,
+      "sidebarDimension": 240
+    },
+    "Plot!follow_cmd": {
+      "foxglovePanelTitle": "Command: forward (m/s), turn left (rad/s)",
+      "paths": [
+        {
+          "value": "/cmd_vel.linear.x",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "forward",
+          "color": "#4e98e2",
+          "lineSize": 2
+        },
+        {
+          "value": "/cmd_vel.angular.z",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "label": "turn",
+          "color": "#f5774d",
+          "lineSize": 1.5
+        }
+      ],
+      "showLegend": true,
+      "legendDisplay": "floating",
+      "showPlotValuesInLegend": false,
+      "showXAxisLabels": true,
+      "showYAxisLabels": true,
+      "isSynced": true,
+      "xAxisVal": "timestamp",
+      "followingViewWidth": 30,
+      "sidebarDimension": 240,
+      "minYValue": -0.5,
+      "maxYValue": 0.5
+    },
     "Tab!main": {
       "activeTabIdx": 0,
       "tabs": [
@@ -1111,6 +1259,25 @@
               "splitPercentage": 45
             },
             "splitPercentage": 55
+          }
+        },
+        {
+          "title": "Follow",
+          "layout": {
+            "direction": "row",
+            "first": "Image!follow",
+            "second": {
+              "direction": "column",
+              "first": "Indicator!follow",
+              "second": {
+                "direction": "column",
+                "first": "Plot!follow_target",
+                "second": "Plot!follow_cmd",
+                "splitPercentage": 50
+              },
+              "splitPercentage": 14
+            },
+            "splitPercentage": 68
           }
         }
       ]

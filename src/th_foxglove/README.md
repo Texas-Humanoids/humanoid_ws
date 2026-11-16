@@ -71,6 +71,15 @@ and per leg), knee and ankle torque, separate charts for CPU load (%) and hottes
 Health table (one row per motor with faults, temperature, torque and bus
 voltage), and the log (warnings and errors only).
 
+**Follow**: what the AprilTag or person follower ([th_autonomy](../th_autonomy/README.md),
+`follow:=tag` or `follow:=person`) sees and does. The big view is the camera
+with every detection outlined and the one being followed in green, labeled
+with its distance and bearing. Beside it: the follower's state (TRACKING,
+LOST, SEARCH, OVERRIDE, DISABLED), the target's distance ahead and offset
+to the right, and the `/cmd_vel` it sends. Detection runs while following is
+off, so check here that the right target is seen before pressing **Y**. The
+view is only encoded while this tab is open. Empty when no follower runs.
+
 ### Current estimate
 
 The motors report torque, speed and supply voltage but not the current they

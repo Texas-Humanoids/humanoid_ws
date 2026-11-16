@@ -92,15 +92,20 @@ def top_down(pid, title, topic, distance):
 
 top_down('3D!command', 'Command · blue (vx, vy, wz) / green (vx, vy)', '/dashboard/command', 1.75)
 top_down('3D!lean', 'Lean · tilt / (forward, left) °', '/dashboard/lean', 1.4)
-cfg['Image!camera'] = {
-    'foxglovePanelTitle': 'Camera',
-    'cameraState': {'distance': 20, 'perspective': True, 'phi': 60, 'target': [0, 0, 0],
-                    'targetOffset': [0, 0, 0], 'targetOrientation': [0, 0, 0, 1],
-                    'thetaOffset': 45, 'fovy': 45, 'near': 0.5, 'far': 5000},
-    'followMode': 'follow-pose', 'scene': {}, 'transforms': {}, 'topics': {}, 'layers': {},
-    'publish': PUBLISH, 'synchronize': False,
-    'imageMode': {'imageTopic': '/camera/image/compressed'},
-}
+def image(pid, title, topic):
+    cfg[pid] = {
+        'foxglovePanelTitle': title,
+        'cameraState': {'distance': 20, 'perspective': True, 'phi': 60, 'target': [0, 0, 0],
+                        'targetOffset': [0, 0, 0], 'targetOrientation': [0, 0, 0, 1],
+                        'thetaOffset': 45, 'fovy': 45, 'near': 0.5, 'far': 5000},
+        'followMode': 'follow-pose', 'scene': {}, 'transforms': {}, 'topics': {}, 'layers': {},
+        'publish': PUBLISH, 'synchronize': False,
+        'imageMode': {'imageTopic': topic},
+    }
+    return pid
+
+
+image('Image!camera', 'Camera', '/camera/image/compressed')
 indicator('Indicator!mode', 'State', '/policy_bridge/mode.data',
           [('WALK', GREEN_BG), ('STAND', YELLOW_BG), ('DISARMED', RED_BG)])
 indicator('Indicator!health', 'Health (details on System)', '/robot/health.data',
@@ -170,10 +175,29 @@ system = split('row',
                 split('row', 'Plot!computer', 'Plot!temperature', 50), 50), 50),
     split('column', 'DiagnosticSummary!health', 'RosOut!log', 45), 55)
 
+# -- Follow: what th_autonomy's tag or person follower sees and does ------------------------
+# Both followers publish under /follower. The image is the camera with detections drawn
+# (green = the one being followed); it is only encoded while this tab is open.
+image('Image!follow', 'Follower view · green = followed', '/follower/image/compressed')
+indicator('Indicator!follow', 'Follower', '/follower/state.data',
+          [('TRACKING', GREEN_BG), ('LOST', YELLOW_BG), ('SEARCH', '#2f6fb0'),
+           ('OVERRIDE', '#7a4fb0'), ('DISABLED', '#3a3d44')])
+plot('Plot!follow_target', 'Target (m): ahead, right of center', [
+    series('/follower/target.point.z', 'ahead', GREEN, 2),
+    series('/follower/target.point.x', 'right', PINK, 1.5)], window=30)
+plot('Plot!follow_cmd', 'Command: forward (m/s), turn left (rad/s)', [
+    series('/cmd_vel.linear.x', 'forward', BLUE, 2),
+    series('/cmd_vel.angular.z', 'turn', ORANGE, 1.5)], ymin=-0.5, ymax=0.5, window=30)
+follow = split('row', 'Image!follow',
+               split('column', 'Indicator!follow',
+                     split('column', 'Plot!follow_target', 'Plot!follow_cmd', 50), 14),
+               68)
+
 cfg['Tab!main'] = {'activeTabIdx': int(sys.argv[2]) if len(sys.argv) > 2 else 0, 'tabs': [
     {'title': 'Overview', 'layout': overview},
     {'title': 'Joints', 'layout': joints},
-    {'title': 'System', 'layout': system}]}
+    {'title': 'System', 'layout': system},
+    {'title': 'Follow', 'layout': follow}]}
 layout = {'configById': cfg, 'globalVariables': {}, 'userNodes': {},
           'playbackConfig': {'speed': 1}, 'layout': 'Tab!main'}
 json.dump(layout, open(sys.argv[1], 'w'), indent=2)
