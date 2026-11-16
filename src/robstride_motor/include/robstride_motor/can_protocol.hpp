@@ -28,6 +28,7 @@ constexpr uint16_t kParamSpeedLimit = 0x7017;
 constexpr uint16_t kParamCurrentLimit = 0x7018;
 constexpr uint16_t kParamMechPos = 0x7019;
 constexpr uint16_t kParamMechVel = 0x701B;
+constexpr uint16_t kParamVbus = 0x701C;  // float, supply (battery) voltage in volts
 constexpr uint16_t kParamCanTimeout = 0x7028;  // uint32, 20000 counts per second
 
 // mode field of status frames

@@ -378,3 +378,38 @@ TEST_F(NodeSafety, MitExchangeReadsItsOwnReplyNotAnEarlierLateOne)
   EXPECT_NEAR(node.target_position_, 0.5, 1e-3);
   EXPECT_TRUE(test_can::queued_frames.empty());
 }
+
+TEST_F(NodeSafety, ReadsBusVoltageAtMostOncePerSecondWithoutWaiting)
+{
+  RobstrideMotorNode node(options());
+  const auto vbus_requests = [] {
+      int count = 0;
+      for (const auto & sent : test_can::sent_frames) {
+        std::array<uint8_t, 8> data;
+        std::memcpy(data.data(), sent.data, 8);
+        if (((sent.can_id >> 24) & 0x1F) == robstride_motor::kCommTypeParamRead &&
+          robstride_motor::decode_param_index(data) == robstride_motor::kParamVbus)
+        {
+          ++count;
+        }
+      }
+      return count;
+    };
+  EXPECT_EQ(vbus_requests(), 0);
+  EXPECT_TRUE(std::isnan(node.bus_voltage_));
+
+  // The reply to an earlier request waits on the socket; the next poll's reads pick it up.
+  can_frame reply{};
+  reply.can_id = CAN_EFF_FLAG |
+    robstride_motor::make_can_id(robstride_motor::kCommTypeParamRead, 1, 0xFE);
+  reply.can_dlc = 8;
+  const auto payload = robstride_motor::encode_param_float(robstride_motor::kParamVbus, 47.5f);
+  std::memcpy(reply.data, payload.data(), 8);
+  test_can::queued_frames = {reply};
+
+  node.poll_feedback();
+  EXPECT_EQ(vbus_requests(), 1);
+  EXPECT_FLOAT_EQ(node.bus_voltage_, 47.5);
+  node.poll_feedback();
+  EXPECT_EQ(vbus_requests(), 1);  // rate limited
+}

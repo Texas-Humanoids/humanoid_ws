@@ -6,6 +6,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     can-utils iproute2 \
     libopencv-dev \
     ros-jazzy-joy \
+    ros-jazzy-foxglove-bridge \
+    ros-jazzy-robot-state-publisher \
     python3-colcon-common-extensions \
     python3-numpy \
     python3-pip \

@@ -39,6 +39,9 @@ class Harness:
         topic = self.topic
         self.node.create_subscription(
             Float32MultiArray, topic('observation'), self.observations.append, 10)
+        self.joint_states = []
+        self.node.create_subscription(
+            JointState, topic('joint_states'), self.joint_states.append, 10)
         self.position = {}
         self.velocity = {}
         for motor in MOTORS:
@@ -69,6 +72,7 @@ class Harness:
             'joint_target_topic': topic('targets'),
             'button_topic': topic('buttons'),
             'observation_topic': topic('observation'),
+            'joint_state_topic': topic('joint_states'),
             **parameters,
         }
         args = [os.environ['POLICY_BRIDGE_EXECUTABLE'], '--ros-args']
@@ -181,6 +185,20 @@ def test_observation_combines_command_imu_motors_and_previous_actions(harness):
     assert list(obs[9:12]) == pytest.approx([0.1, -0.1, 0.0], abs=1e-6)  # relative to default
     assert list(obs[12:15]) == pytest.approx([1.5, 2.0, 0.0])
     assert list(obs[15:18]) == pytest.approx([1.0, 0.4, 0.0], abs=1e-6)
+
+
+def test_joint_states_are_calibrated_and_published_while_not_ready(harness):
+    h = harness()
+    # Knee motor 0.7 rad is joint -(0.7 - 1.0) = 0.3 rad; the ankle has no motor (default).
+    h.motor_state = {'hip': (0.1, 1.5), 'knee': (0.7, -2.0)}
+    # No IMU: the bridge is not ready, but the dashboard still sees the legs.
+    h.wait(lambda: any(abs(m.position[1] - 0.3) < 1e-6 for m in h.joint_states),
+           step=h.publish_motors)
+    msg = [m for m in h.joint_states if abs(m.position[1] - 0.3) < 1e-6][-1]
+    assert list(msg.name) == JOINTS
+    assert list(msg.position) == pytest.approx([0.1, 0.3, -0.3])
+    assert list(msg.velocity) == pytest.approx([1.5, 2.0, 0.0])
+    assert not h.observations
 
 
 def test_stale_command_reads_as_stop(harness):

@@ -237,6 +237,10 @@ public:
     publish_mode();
     observation_pub_ = create_publisher<std_msgs::msg::Float32MultiArray>(
       declare_parameter<std::string>("observation_topic", "/policy/observation"), 10);
+    // Measured joint angles in joint space (calibration applied), for robot_state_publisher
+    // and the dashboard. Joints without a motor read as the default pose, as in the policy.
+    joint_state_pub_ = create_publisher<sensor_msgs::msg::JointState>(
+      declare_parameter<std::string>("joint_state_topic", "/joint_states"), 10);
     timer_ = create_wall_timer(
       std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::duration<double>(1.0 /
       rate)),
@@ -472,8 +476,22 @@ private:
     }
   }
 
+  void publish_joint_states()
+  {
+    sensor_msgs::msg::JointState msg;
+    msg.header.stamp = now();
+    msg.name = joint_names_;
+    msg.position = measured_joints();
+    msg.velocity.assign(joint_names_.size(), 0.0);
+    for (const auto & motor : motors_) {msg.velocity[motor.joint] = motor.velocity;}
+    joint_state_pub_->publish(msg);
+  }
+
   void on_tick()
   {
+    // Before the readiness checks, so the dashboard shows the legs even while disarmed
+    // or waiting on a sensor.
+    publish_joint_states();
     // Re-send the gains now and then, so a lost message cannot leave a motor on the
     // wrong gains (e.g. stiff STAND gains while the policy walks).
     if (++gain_refresh_ticks_ >= 25) {
@@ -587,6 +605,7 @@ private:
   rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr observation_pub_;
   rclcpp::Publisher<geometry_msgs::msg::Vector3>::SharedPtr gravity_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr mode_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr joint_state_pub_;
   rclcpp::TimerBase::SharedPtr timer_;
 };
 

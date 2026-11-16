@@ -19,7 +19,8 @@ humanoid_ws/
 │   ├── th_hardware/        connects ROS controllers to the motors
 │   ├── th_controllers/     custom controllers (RL walking policy)
 │   ├── th_sensors/         IMU, camera, and other sensor drivers
-│   └── th_perception/      GPU perception with Isaac ROS (optional)
+│   ├── th_perception/      GPU perception with Isaac ROS (optional)
+│   └── th_foxglove/        Foxglove dashboard: bridge, robot health, layout
 ├── firmware/               microcontroller code for future custom motors
 ├── training/               mjlab training (Python/uv, not built by colcon)
 ├── policies/               trained walking policies
