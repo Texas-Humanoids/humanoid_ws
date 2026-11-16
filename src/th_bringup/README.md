@@ -62,18 +62,29 @@ motors to the left leg's hip, knee and ankle pitch joints.
    `bluetoothctl` (`scan on`, `pair <MAC>`, `trust <MAC>`, `connect <MAC>`).
    If it keeps disconnecting, update the controller's firmware from a
    Windows/Xbox console first.
-2. **CAN.** The motors are on the USB-CAN adapter. Linux names it `can0` or
-   `can1` depending on which CAN driver loads first at boot (the Jetson's
-   built-in CAN takes the other name), so give it a fixed name once:
+2. **CAN.** The motors are on USB-CAN adapters (CANable, `gs_usb`).
+   - **The bench** uses one adapter, named `can_usb`.
+   - **The WalkerV2** uses two, one per leg. They're named **`can_left`** (motors 11–15) and **`can_right`** (21–25), matched by each adapter's serial number, so the names hold whichever USB port each is in.
+   - **Without these rules,** Linux names adapters `can1`, `can2`, … in whatever order they appear at boot. The Jetson's built-in CAN also takes one of those names.
+
+   Install the rules once:
    ```bash
-   sudo cp tools/jetson/10-can-usb.link /etc/systemd/network/
+   sudo cp tools/jetson/05-can-left.link tools/jetson/05-can-right.link \
+     tools/jetson/10-can-usb.link /etc/systemd/network/
    sudo udevadm control --reload
-   sudo udevadm trigger --action=add /sys/class/net/can0 /sys/class/net/can1
-   ip -br link show type can   # the adapter is now can_usb
+   for i in $(ip -br link show type can | awk '{print $1}'); do
+     sudo ip link set $i down; sudo udevadm trigger --action=add /sys/class/net/$i; done
+   ip -br link show type can   # can_left and can_right (any other CANable: can_usb)
    ```
-   Wire CAN_H, CAN_L **and GND** to every motor, power the motors, then
-   `sudo ip link set can_usb up type can bitrate 1000000`. See
-   [robstride_motor](../robstride_motor/README.md) for details.
+   **Label each adapter with its leg.** To use a different adapter for a leg, put its serial (from the status script below) in that leg's `05-can-*.link` and install the rules again.
+
+   Wire CAN_H, CAN_L **and GND** to every motor on each leg's chain, power the motors, then check both buses:
+   ```bash
+   tools/jetson/can_status.sh   # each adapter: name, serial, USB port, bus state, motors found
+   ```
+   It brings each adapter up at 1 Mbit/s, then lists the motor IDs that answer on it, flagging any missing or on the wrong leg's bus.
+   - **Plug the adapters straight into the Jetson, not through a USB hub.** On the bench, hubs dropped the adapters several times.
+   - See [robstride_motor](../robstride_motor/README.md) for details.
 3. **Container.** From the repo root on the Jetson:
    `docker compose --profile robot up -d --build`, then
    `docker compose exec robot bash`. This profile shares the host network

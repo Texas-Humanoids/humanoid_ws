@@ -1,0 +1,10 @@
+# The USB-CAN adapter for the RIGHT leg (motors 21-25) is always named can_right, whichever USB
+# port it is in. Matched by the adapter's own serial number (`tools/jetson/can_status.sh` prints
+# it). Label the adapter. To use another adapter for this leg, put its serial here and reinstall
+# (see th_bringup README). Read before 10-can-usb.link, which names any other CANable can_usb.
+[Match]
+Driver=gs_usb
+Property=ID_SERIAL_SHORT=002D00165741570220393033
+
+[Link]
+Name=can_right
