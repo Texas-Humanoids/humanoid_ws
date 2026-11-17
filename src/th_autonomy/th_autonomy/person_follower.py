@@ -4,6 +4,7 @@ The camera, gamepad and safety rules are shared with the tag follower (see
 follower_node.py). Who is followed (person_tracker.py):
   - raise a hand for half a second to claim the robot (it shows on the
     dashboard), then press Y to start; or press Y and it takes the nearest person;
+  - B stops following and releases the claim;
   - while it follows someone in view, nobody else can claim it;
   - if they disappear it waits for them (matched by clothing) or a new claim.
 The pose model (pose_detector.py, RTMO) runs on the GPU with TensorRT.
@@ -44,13 +45,21 @@ class PersonFollower(FollowerNode):
         self.seen = []
         self.followed = None
         self.located = None
+        self.release = False  # B pressed: drop the claim on the next frame (image thread)
 
     def on_enable(self):
         if self.claim.track_id is None:  # nobody claimed the robot: take the nearest
             self.claim.lock_largest(self.seen, self.now())
 
+    def on_stop(self):
+        self.release = True
+        self.get_logger().info('Claim released: raise a hand to claim again')
+
     def find_target(self, bgr, intrinsics):
         t = self.now()
+        if self.release:
+            self.release = False
+            self.claim.reset()
         self.seen = self.tracker.update(self.detector.detect(bgr), t)
         self.followed = self.claim.update(self.seen, bgr, t, following=self.enabled)
         if self.followed is None:
@@ -63,7 +72,8 @@ class PersonFollower(FollowerNode):
     def status_hint(self):
         if self.claim.track_id is None:
             return 'raise a hand to claim, Y to follow the nearest'
-        return f'#{self.claim.track_id} {"claimed" if self.claim.claimed else "locked"}, Y to follow'
+        who = 'claimed' if self.claim.claimed else 'locked'
+        return f'#{self.claim.track_id} {who}, Y to follow, B to release'
 
     def shapes(self):
         out = []

@@ -31,7 +31,7 @@ Then **START** (stand), **A** (walk), **Y** (follow).
 | Control | Effect |
 |---|---|
 | **Y** | Toggle following. Only turns on while the bridge is in WALK. |
-| **B** or **BACK** | Following off (BACK also disarms the bridge). |
+| **B** or **BACK** | Following off (BACK also disarms the bridge). The person follower also releases whoever claimed it. |
 | Hold **LB** | The gamepad drives; following resumes from standstill on release. |
 | Bridge leaves WALK | Following off. |
 
@@ -86,6 +86,8 @@ cv2.imwrite('tag0.png', cv2.copyMakeBorder(render_tag('tag36h11', 0, 800), 100, 
 - **Y with nobody claimed** takes the largest (nearest) person.
 - **While it follows someone in view, nobody else can claim it.** If they are
   lost, a raised hand from anyone takes over.
+- **B** stops following and releases the claim, so the next raised hand (or Y)
+  picks someone new.
 
 It stops 1.5 m away and never backs up from a person.
 

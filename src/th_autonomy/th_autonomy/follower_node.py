@@ -176,6 +176,9 @@ class FollowerNode(Node):
     def on_enable(self):
         """Following was just turned on."""
 
+    def on_stop(self):
+        """A stop button (B, BACK) was pressed, whether or not it was following."""
+
     def status_hint(self):
         """What to do next, shown on the dashboard while following is off."""
         return 'Y to follow (in WALK)'
@@ -203,9 +206,11 @@ class FollowerNode(Node):
             if self.enabled:
                 self.on_enable()
             self.get_logger().info(f"Following {'on' if self.enabled else 'off'}")
-        elif msg.data in self.stop_events and self.enabled:
-            self.enabled = False
-            self.get_logger().info(f'{msg.data}: following off')
+        elif msg.data in self.stop_events:
+            if self.enabled:
+                self.enabled = False
+                self.get_logger().info(f'{msg.data}: following off')
+            self.on_stop()
 
     def on_joy(self, msg):
         held = 0 <= self.override_button < len(msg.buttons) and msg.buttons[self.override_button] == 1
