@@ -1,7 +1,8 @@
 """Generate the presentation layout: python3 tools/make_layout.py layouts/walker_v2.json."""
 
 import json, sys
-FRAMES = ['world', 'base_link', 'base_footprint', 'base_smooth', 'dashboard', 'imu_link'] + [
+FRAMES = ['world', 'base_link', 'base_footprint', 'base_smooth', 'dashboard', 'imu_link',
+          'follow_camera'] + [
     f'{s}_{l}_link' for s in ('left', 'right')
     for l in ('hip_pitch', 'hip_roll', 'thigh', 'shank', 'foot')]
 BLUE, BLUE_T, ORANGE, ORANGE_T = '#4e98e2', '#a9cdf2', '#f5774d', '#fbbca6'
@@ -61,6 +62,8 @@ cfg['3D!robot'] = {
     'transforms': {f'frame:{f}': {'visible': False} for f in FRAMES},
     'topics': {'/robot_description': {'visible': True}, '/tf': {'visible': True},
                '/tf_static': {'visible': True}, '/dashboard/command': {'visible': False},
+               # th_autonomy's follower: the target it sees and where it will stop.
+               '/follower/markers': {'visible': True},
                '/dashboard/lean': {'visible': False},
                '/dashboard/telemetry': {'visible': False}},
     'layers': {'grid': {'layerId': 'foxglove.Grid', 'instanceId': 'grid', 'label': 'Floor',
@@ -92,7 +95,7 @@ def top_down(pid, title, topic, distance):
 
 top_down('3D!command', 'Command · blue (vx, vy, wz) / green (vx, vy)', '/dashboard/command', 1.75)
 top_down('3D!lean', 'Lean · tilt / (forward, left) °', '/dashboard/lean', 1.4)
-def image(pid, title, topic):
+def image(pid, title, topic, annotations=()):
     cfg[pid] = {
         'foxglovePanelTitle': title,
         'cameraState': {'distance': 20, 'perspective': True, 'phi': 60, 'target': [0, 0, 0],
@@ -100,12 +103,16 @@ def image(pid, title, topic):
                         'thetaOffset': 45, 'fovy': 45, 'near': 0.5, 'far': 5000},
         'followMode': 'follow-pose', 'scene': {}, 'transforms': {}, 'topics': {}, 'layers': {},
         'publish': PUBLISH, 'synchronize': False,
-        'imageMode': {'imageTopic': topic},
+        'imageMode': {'imageTopic': topic,
+                      'annotations': {a: {'visible': True} for a in annotations}},
     }
     return pid
 
 
-image('Image!camera', 'Camera', '/camera/image/compressed')
+# A follower (th_autonomy) outlines what it detects over the camera's own stream; the one
+# it follows is green, labeled with distance and bearing. Nothing extra when none runs.
+image('Image!camera', 'Camera · green = followed', '/camera/image/compressed',
+      ['/follower/annotations'])
 indicator('Indicator!mode', 'State', '/policy_bridge/mode.data',
           [('WALK', GREEN_BG), ('STAND', YELLOW_BG), ('DISARMED', RED_BG)])
 indicator('Indicator!health', 'Health (details on System)', '/robot/health.data',
@@ -175,10 +182,11 @@ system = split('row',
                 split('row', 'Plot!computer', 'Plot!temperature', 50), 50), 50),
     split('column', 'DiagnosticSummary!health', 'RosOut!log', 45), 55)
 
-# -- Follow: what th_autonomy's tag or person follower sees and does ------------------------
-# Both followers publish under /follower. The image is the camera with detections drawn
-# (green = the one being followed); it is only encoded while this tab is open.
-image('Image!follow', 'Follower view · green = followed', '/follower/image/compressed')
+# -- Follow: a backup view for tuning th_autonomy's tag or person follower ------------------
+# The Overview already shows its detections (camera) and target (3D). Here: the same camera,
+# its state, and how the target distance and the command evolve.
+image('Image!follow', 'Follower view · green = followed', '/camera/image/compressed',
+      ['/follower/annotations'])
 indicator('Indicator!follow', 'Follower', '/follower/state.data',
           [('TRACKING', GREEN_BG), ('LOST', YELLOW_BG), ('SEARCH', '#2f6fb0'),
            ('OVERRIDE', '#7a4fb0'), ('DISABLED', '#3a3d44')])

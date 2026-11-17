@@ -58,6 +58,9 @@
         "frame:imu_link": {
           "visible": false
         },
+        "frame:follow_camera": {
+          "visible": false
+        },
         "frame:left_hip_pitch_link": {
           "visible": false
         },
@@ -101,6 +104,9 @@
         },
         "/dashboard/command": {
           "visible": false
+        },
+        "/follower/markers": {
+          "visible": true
         },
         "/dashboard/lean": {
           "visible": false
@@ -200,6 +206,9 @@
           "visible": false
         },
         "frame:imu_link": {
+          "visible": false
+        },
+        "frame:follow_camera": {
           "visible": false
         },
         "frame:left_hip_pitch_link": {
@@ -317,6 +326,9 @@
         "frame:imu_link": {
           "visible": false
         },
+        "frame:follow_camera": {
+          "visible": false
+        },
         "frame:left_hip_pitch_link": {
           "visible": false
         },
@@ -376,7 +388,7 @@
       "imageMode": {}
     },
     "Image!camera": {
-      "foxglovePanelTitle": "Camera",
+      "foxglovePanelTitle": "Camera \u00b7 green = followed",
       "cameraState": {
         "distance": 20,
         "perspective": true,
@@ -418,7 +430,12 @@
       },
       "synchronize": false,
       "imageMode": {
-        "imageTopic": "/camera/image/compressed"
+        "imageTopic": "/camera/image/compressed",
+        "annotations": {
+          "/follower/annotations": {
+            "visible": true
+          }
+        }
       }
     },
     "Indicator!mode": {
@@ -532,6 +549,9 @@
           "visible": false
         },
         "frame:imu_link": {
+          "visible": false
+        },
+        "frame:follow_camera": {
           "visible": false
         },
         "frame:left_hip_pitch_link": {
@@ -1056,7 +1076,12 @@
       },
       "synchronize": false,
       "imageMode": {
-        "imageTopic": "/follower/image/compressed"
+        "imageTopic": "/camera/image/compressed",
+        "annotations": {
+          "/follower/annotations": {
+            "visible": true
+          }
+        }
       }
     },
     "Indicator!follow": {

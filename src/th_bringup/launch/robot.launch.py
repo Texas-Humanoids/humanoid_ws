@@ -211,7 +211,7 @@ def launch_pipeline(context):
                  '/policy/.*|/policy_bridge/.*|/cmd_vel|/gamepad/.*|' +
                  arg('imu_topic') + '|/.*/motor/.*|/joint_states|/tf|/tf_static|'
                  '/robot_description|/battery|/diagnostics|/robot/.*|/dashboard/.*|'
-                 '/mujoco_sim/.*|/follower/(state|target)|/rosout'],
+                 '/mujoco_sim/.*|/follower/(state|target|markers)|/rosout'],
             output='screen'))
     if arg('foxglove') == 'true':
         actions.append(IncludeLaunchDescription(

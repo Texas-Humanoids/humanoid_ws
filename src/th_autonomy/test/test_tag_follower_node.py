@@ -13,6 +13,7 @@ from rclpy.qos import QoSDurabilityPolicy, QoSProfile, qos_profile_sensor_data
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import CompressedImage, Joy
 from std_msgs.msg import String
+from visualization_msgs.msg import MarkerArray
 
 from th_autonomy.tag_detector import render_tag
 from th_autonomy.tag_follower import TagFollower
@@ -48,6 +49,8 @@ class Harness:
         self.image = self.node.create_publisher(CompressedImage, topic('image'), qos_profile_sensor_data)
         self.cmds = []
         self.states = []
+        self.markers = []
+        self.node.create_subscription(MarkerArray, topic('follower/markers'), self.markers.append, 10)
         self.node.create_subscription(Twist, topic('cmd_vel'), self.cmds.append, 100)
         self.node.create_subscription(
             String, topic('follower/state'), lambda m: self.states.append(m.data), LATCHED)
@@ -115,6 +118,8 @@ def test_follows_tag_and_stops_on_b(h):
     assert h.state() == 'TRACKING'
     assert h.cmds[-1].angular.z > 0.0  # turning left toward it
     assert max(c.linear.x for c in h.cmds) <= 0.4 + 1e-9
+    target = [m for a in h.markers for m in a.markers if m.id == 0][-1]  # the tag in 3D
+    assert target.pose.position.x > 1.0 and target.pose.position.y > 0.0  # ahead, to the left
     h.press('B')
     assert h.spin(1.0, lambda: h.state() == 'DISABLED')
     count = len(h.cmds)

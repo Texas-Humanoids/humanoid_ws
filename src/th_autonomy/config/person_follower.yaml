@@ -12,8 +12,8 @@ person_follower:
     require_walk: true
     rate: 20.0
     decode_scale: 1                  # the model sees 416x416 either way; 2 saves a little decoding
-    publish_debug_image: true
-    status_namespace: /follower      # state, target and annotated image for the dashboard
+    publish_debug_image: false       # true: also /follower/image/compressed
+    status_namespace: /follower      # state, target, camera overlay and 3D markers for the dashboard
 
     model_path: models/yolox_nano.onnx  # tools/fetch_person_model.py; relative to the launch directory
     score_threshold: 0.45
@@ -28,6 +28,12 @@ person_follower:
       distortion: [0.0]
       hfov_deg: 90.0
       rotation: 0                    # degrees clockwise to turn frames upright; 180 = mounted upside down
+      # Where it sits on the robot, for the 3D view: on the chest above the logo (a guess;
+      # measure once mounted). Relative to base_link: x forward, y left, z up (m), and
+      # roll, pitch, yaw (rad; pitch > 0 tilts it down).
+      mount_parent: base_link
+      mount_xyz: [0.07, 0.0, 0.27]
+      mount_rpy: [0.0, 0.0, 0.0]
 
     track:
       person_height: 1.7             # m; distance scales with this

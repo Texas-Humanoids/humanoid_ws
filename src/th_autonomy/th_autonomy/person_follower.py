@@ -7,8 +7,7 @@ in view is locked on and followed, even with others in frame (person_tracker.py)
 
 import math
 
-import cv2
-
+from th_autonomy import overlay
 from th_autonomy.follow_controller import FollowParams
 from th_autonomy.follower_node import FollowerNode, Target, run
 from th_autonomy.person_detector import PersonDetector
@@ -51,18 +50,17 @@ class PersonFollower(FollowerNode):
         distance, bearing, position = self.located
         return Target(distance, bearing, position)
 
-    def draw(self, image):
+    def shapes(self):
+        out = []
         for b in self.people:
             locked = b is self.locked
-            color = (0, 220, 0) if locked else (0, 160, 255)
-            x1, y1, x2, y2 = b.as_int()
-            cv2.rectangle(image, (x1, y1), (x2, y2), color, 3 if locked else 1)
-            label = f'{b.score:.2f}'
+            label = f'person {b.score:.2f}'
             if locked and self.located:
                 distance, bearing, _ = self.located
-                label = f'FOLLOW {distance:.1f} m {math.degrees(bearing):+.0f} deg'
-            cv2.putText(image, label, (x1 + 4, max(15, y1 - 8)), cv2.FONT_HERSHEY_SIMPLEX,
-                        0.6, color, 2, cv2.LINE_AA)
+                label = f'FOLLOW {distance:.1f} m {math.degrees(bearing):+.0f}°'
+            out.append(overlay.Shape(overlay.box(b.x1, b.y1, b.x2, b.y2),
+                                     overlay.FOLLOWED if locked else overlay.OTHER, label, locked))
+        return out
 
 
 def main(args=None):

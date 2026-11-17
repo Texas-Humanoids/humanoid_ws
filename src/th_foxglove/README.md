@@ -53,13 +53,13 @@ nothing extra to run on the robot.
 
 | Panel | Source | What it tells you |
 |---|---|---|
-| Robot | `/robot_description`, `/tf` | The WalkerV2 model with every joint at its measured angle. The saved camera starts centered behind the robot and follows `base_smooth` (position and heading, low-passed ~0.8 s), so it glides with the robot instead of jolting each step. In sim the base follows MuJoCo's ground truth; on hardware it tilts with the IMU at a fixed height (no position estimate yet). |
+| Robot | `/robot_description`, `/tf`, `/follower/markers` | The WalkerV2 model with every joint at its measured angle. With a follower running, also the target it sees (green while following) and a floor arc at its stop distance. The saved camera starts centered behind the robot and follows `base_smooth` (position and heading, low-passed ~0.8 s), so it glides with the robot instead of jolting each step. In sim the base follows MuJoCo's ground truth; on hardware it tilts with the IMU at a fixed height (no position estimate yet). |
 | Command radar | `/dashboard/command` | Top-down and fixed in place; the robot's forward is up. Blue: commanded velocity. Green: actual walking velocity, averaged over two steps so step sway cancels (sim only for now). Orange arc: turn command. Rings at 0.25 and 0.5 m/s. |
 | Lean level | `/dashboard/lean` | Top-down bubble level, fixed in place: the dot sits where the body leans (forward = up, left = left), with a 2 s trail. Green under 10°, yellow under 25°, red beyond; the red ring is the 57° fall cutoff. |
 | State, Health | `/policy_bridge/mode`, `/robot/health` | WALK / STAND / DISARMED, and OK / WARNING / FAULT for the motors, IMU and battery (details on the System tab) |
 | Battery dial | `/dashboard/telemetry` | 30-42 V for the 10S pack, with a numeric voltage readout. NO DATA in sim. |
 | Current dials | `/dashboard/telemetry` | Numeric estimates in A: total (30 A BMS) and per leg. Uses `/robot/current_*` calculations. See below. |
-| Camera | `/camera/image/compressed` | The bench camera ([tools/bench_camera](../../tools/bench_camera/README.md)) |
+| Camera | `/camera/image/compressed`, `/follower/annotations` | The bench camera ([tools/bench_camera](../../tools/bench_camera/README.md)). With a follower running, every detection is outlined and the followed one is green with its distance and bearing; the top line is the follower's state and stop distance. |
 
 **Joints**: one plot per joint (hip pitch, roll, yaw, knee, ankle), each with
 the left (blue) and right (orange) leg in degrees, measured as a solid line and
@@ -71,14 +71,13 @@ and per leg), knee and ankle torque, separate charts for CPU load (%) and hottes
 Health table (one row per motor with faults, temperature, torque and bus
 voltage), and the log (warnings and errors only).
 
-**Follow**: what the AprilTag or person follower ([th_autonomy](../th_autonomy/README.md),
-`follow:=tag` or `follow:=person`) sees and does. The big view is the camera
-with every detection outlined and the one being followed in green, labeled
-with its distance and bearing. Beside it: the follower's state (TRACKING,
-LOST, SEARCH, OVERRIDE, DISABLED), the target's distance ahead and offset
-to the right, and the `/cmd_vel` it sends. Detection runs while following is
-off, so check here that the right target is seen before pressing **Y**. The
-view is only encoded while this tab is open. Empty when no follower runs.
+**Follow**: a backup for tuning the AprilTag or person follower
+([th_autonomy](../th_autonomy/README.md), `follow:=tag` or `follow:=person`).
+The Overview already shows what it sees (camera) and where (3D). Here: the same
+annotated camera, the follower's state (TRACKING, LOST, SEARCH, OVERRIDE,
+DISABLED), the target's distance ahead and offset to the right over time, and
+the `/cmd_vel` it sends. Detection runs while following is off, so check that
+the right target is seen before pressing **Y**. Empty when no follower runs.
 
 ### Current estimate
 

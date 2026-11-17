@@ -5,8 +5,8 @@
   /gamepad/button_event ────────────┤
   /joy (override button) ───────────┘
 
-A subclass only finds the target in each frame (`find_target`) and draws it
-(`draw`). This class publishes /cmd_vel only while all of these hold:
+A subclass only finds the target in each frame (`find_target`) and outlines
+what it found (`shapes`). This class publishes /cmd_vel only while all of these hold:
   - following is enabled: `toggle_event` (Y) toggles it, but only turns it on
     while the bridge is in WALK (`require_walk`); any `stop_events` (B, BACK)
     and the bridge leaving WALK turn it off, so STAND is never sent commands;
@@ -16,10 +16,13 @@ When it stops publishing it sends one zero command first (like the gamepad),
 and the bridge's cmd_vel timeout (0.5 s) stops the robot if this node dies.
 
 Status goes to `status_namespace` (/follower), the same for every follower, so
-the Foxglove dashboard's Follow tab works with whichever one runs:
+the Foxglove dashboard works with whichever one runs:
   /follower/state             DISABLED, OVERRIDE, TRACKING, LOST or SEARCH (latched)
   /follower/target            the followed target's center in the camera frame
-  /follower/image/compressed  the camera with detections drawn (only while watched)
+  /follower/annotations       outlines and labels drawn over the camera's own stream
+  /follower/markers           the target, and where the robot will stop, in 3D
+  /follower/image/compressed  optional (publish_debug_image): a re-encoded annotated copy
+The camera's mount on the robot is published as the static frame `follow_camera`.
 Detection runs on every frame even while disabled, so you can check in Foxglove
 that the target is seen before enabling it.
 
@@ -28,6 +31,7 @@ Images are processed in their own callback group: with a MultiThreadedExecutor
 """
 
 from dataclasses import dataclass
+import math
 import threading
 import time
 
@@ -38,10 +42,13 @@ from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 import rclpy.executors
 from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile, qos_profile_sensor_data
-from geometry_msgs.msg import PointStamped, Twist
+from geometry_msgs.msg import PointStamped, TransformStamped, Twist
 from sensor_msgs.msg import CompressedImage, Joy
 from std_msgs.msg import String
+from tf2_ros import StaticTransformBroadcaster
+from visualization_msgs.msg import MarkerArray
 
+from th_autonomy import overlay
 from th_autonomy.follow_controller import FollowController, FollowParams
 from th_autonomy.tag_detector import Intrinsics
 
@@ -66,6 +73,7 @@ class Target:
 class FollowerNode(Node):
 
     color = False  # subclasses that need BGR frames set True
+    look = overlay.TargetMarker()  # the target's shape in 3D
 
     def __init__(self, name, follow_defaults=None, **kwargs):
         super().__init__(name, **kwargs)
@@ -87,7 +95,7 @@ class FollowerNode(Node):
         if self.decode_scale not in flags:
             raise ValueError(f'decode_scale must be one of {sorted(flags)}')
         self.decode_flag = flags[self.decode_scale]
-        self.publish_debug_image = bool(p('publish_debug_image', True).value)
+        self.publish_debug_image = bool(p('publish_debug_image', False).value)
         status = p('status_namespace', '/follower').value.rstrip('/')
 
         # Calibrated intrinsics at full resolution (fx > 0), else a guess from hfov_deg.
@@ -102,6 +110,12 @@ class FollowerNode(Node):
         if rotation not in ROTATIONS:
             raise ValueError(f'camera.rotation must be one of {sorted(ROTATIONS)}')
         self.rotation = ROTATIONS[rotation]
+        # Where the camera sits on the robot, for the 3D view (x forward, y left, z up, m/rad).
+        self.camera_frame = p('camera.frame', 'follow_camera').value
+        self.floor_frame = p('camera.floor_frame', 'base_footprint').value
+        mount_parent = p('camera.mount_parent', 'base_link').value
+        mount_xyz = [float(v) for v in p('camera.mount_xyz', [0.07, 0.0, 0.27]).value]
+        mount_rpy = [float(v) for v in p('camera.mount_rpy', [0.0, 0.0, 0.0]).value]
 
         defaults = follow_defaults or FollowParams()
         self.controller = FollowController(FollowParams(**{
@@ -122,6 +136,16 @@ class FollowerNode(Node):
         self.state_pub = self.create_publisher(String, f'{status}/state', latched)
         self.target_pub = self.create_publisher(PointStamped, f'{status}/target', 10)
         self.debug_pub = self.create_publisher(CompressedImage, f'{status}/image/compressed', 1)
+        self.marker_pub = self.create_publisher(MarkerArray, f'{status}/markers', 1)
+        self.annotation_pub = None
+        if overlay.ImageAnnotations is not None:
+            self.annotation_pub = self.create_publisher(
+                overlay.ImageAnnotations, f'{status}/annotations', 1)
+        else:
+            self.get_logger().warn('foxglove_msgs is not installed: no camera overlay')
+        self.static_tf = StaticTransformBroadcaster(self)
+        self.static_tf.sendTransform(mount(self.get_clock().now().to_msg(), mount_parent,
+                                           self.camera_frame, mount_xyz, mount_rpy))
         image_qos = QoSProfile(depth=1, reliability=qos_profile_sensor_data.reliability)
         self.create_subscription(CompressedImage, image_topic, self.on_image, image_qos,
                                  callback_group=MutuallyExclusiveCallbackGroup())
@@ -140,8 +164,9 @@ class FollowerNode(Node):
         """The target in this frame as a Target, or None. `image` is gray or BGR (`color`)."""
         raise NotImplementedError
 
-    def draw(self, image):
-        """Draw the last frame's detections on a BGR copy of it, for /follower/image/compressed."""
+    def shapes(self):
+        """The last frame's detections as overlay.Shape outlines (the followed one in green)."""
+        return []
 
     def on_enable(self):
         """Following was just turned on."""
@@ -195,6 +220,7 @@ class FollowerNode(Node):
         if image is None:
             self.get_logger().warn(f"Can't decode '{msg.format}' image", throttle_duration_sec=10.0)
             return
+        height, width = image.shape[:2]  # as decoded, before turning upright
         if self.rotation is not None:
             image = cv2.rotate(image, self.rotation)
         target = self.find_target(image, self.camera(image.shape[1], image.shape[0]))
@@ -205,14 +231,30 @@ class FollowerNode(Node):
             point.header = msg.header
             point.point.x, point.point.y, point.point.z = (float(v) for v in target.position)
             self.target_pub.publish(point)
+        self.publish_overlay(msg, image, target, width, height)
+
+    def publish_overlay(self, msg, image, target, width, height):
+        shapes = self.shapes()
+        stop = self.controller.params.target_distance
+        state = self.state or ''
+        status = f'{state} · stops {stop:.1f} m away' if state != 'DISABLED' else (
+            f'{state} · Y to follow (in WALK)')
+        if self.annotation_pub is not None:
+            self.annotation_pub.publish(overlay.annotations(
+                msg.header.stamp, shapes, status, self.rotation, width, height, self.decode_scale))
+        label = ''
+        if target is not None:
+            label = f'{target.distance:.1f} m {math.degrees(target.bearing):+.0f}°'
+        self.marker_pub.publish(overlay.markers(
+            msg.header, self.camera_frame, self.floor_frame,
+            None if target is None else target.position, label,
+            state in overlay.FOLLOWING_STATES, stop, self.look))
         if self.publish_debug_image and self.debug_pub.get_subscription_count() > 0:
+            image = image.copy() if image.ndim == 3 else cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+            overlay.draw(image, shapes, status.replace('·', '-'))
             self.publish_debug(msg, image)
 
     def publish_debug(self, msg, image):
-        image = image.copy() if image.ndim == 3 else cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
-        self.draw(image)
-        cv2.putText(image, self.state or '', (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.7,
-                    (255, 255, 255), 2, cv2.LINE_AA)
         ok, jpeg = cv2.imencode('.jpg', image, [cv2.IMWRITE_JPEG_QUALITY, 70])
         if ok:
             out = CompressedImage()
@@ -259,6 +301,24 @@ class FollowerNode(Node):
         if self.publishing:
             self.cmd_pub.publish(Twist())
         super().destroy_node()
+
+
+def mount(stamp, parent, child, xyz, rpy):
+    """A static transform from roll, pitch, yaw (rad)."""
+    t = TransformStamped()
+    t.header.stamp = stamp
+    t.header.frame_id = parent
+    t.child_frame_id = child
+    t.transform.translation.x, t.transform.translation.y, t.transform.translation.z = xyz
+    cr, sr = math.cos(rpy[0] / 2), math.sin(rpy[0] / 2)
+    cp, sp = math.cos(rpy[1] / 2), math.sin(rpy[1] / 2)
+    cy, sy = math.cos(rpy[2] / 2), math.sin(rpy[2] / 2)
+    q = t.transform.rotation
+    q.w = cr * cp * cy + sr * sp * sy
+    q.x = sr * cp * cy - cr * sp * sy
+    q.y = cr * sp * cy + sr * cp * sy
+    q.z = cr * cp * sy - sr * sp * cy
+    return t
 
 
 def run(node_class, args=None):

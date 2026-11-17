@@ -6,9 +6,9 @@ follower_node.py). This node only finds the tag: the nearest one, or `target_id`
 
 import math
 
-import cv2
-import numpy as np
+from visualization_msgs.msg import Marker
 
+from th_autonomy import overlay
 from th_autonomy.follower_node import FollowerNode, Target, run
 from th_autonomy.tag_detector import TagDetector
 
@@ -24,6 +24,8 @@ class TagFollower(FollowerNode):
             bool(p('refine_corners', True).value))
         self.detections = []
         self.target = None
+        size = self.detector.tag_size
+        self.look = overlay.TargetMarker(Marker.CUBE, (0.02, size, size))  # a flat tag
 
     def find_target(self, gray, intrinsics):
         detections = self.detector.detect(gray, intrinsics)
@@ -35,13 +37,15 @@ class TagFollower(FollowerNode):
             return None
         return Target(self.target.distance, self.target.bearing, tuple(self.target.position))
 
-    def draw(self, image):
+    def shapes(self):
+        out = []
         for d in self.detections:
-            color = (0, 220, 0) if d is self.target else (0, 160, 255)
-            cv2.polylines(image, [d.corners.astype(np.int32)], True, color, 2)
-            x, y = d.corners[0].astype(int)
-            cv2.putText(image, f'{d.tag_id}: {d.distance:.2f} m {math.degrees(d.bearing):+.0f} deg',
-                        (x, max(15, y - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1, cv2.LINE_AA)
+            followed = d is self.target
+            label = f'tag {d.tag_id}: {d.distance:.1f} m {math.degrees(d.bearing):+.0f}°'
+            out.append(overlay.Shape([tuple(c) for c in d.corners],
+                                     overlay.FOLLOWED if followed else overlay.OTHER,
+                                     ('FOLLOW ' if followed else '') + label, followed))
+        return out
 
 
 def main(args=None):

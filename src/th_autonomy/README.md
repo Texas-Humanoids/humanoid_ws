@@ -40,17 +40,22 @@ controller mode: in keyboard mode there is no `/joy` for the LB override.
 
 ## Topics
 
-Both followers publish here (`status_namespace`), so the dashboard's **Follow**
-tab works with either:
+Both followers publish here (`status_namespace`), so the dashboard works with
+either. The Foxglove **Overview** shows them: detections over the camera, the
+target in the 3D view. The **Follow** tab is a backup with plots for tuning.
 
 | Topic | |
 |---|---|
 | `/follower/state` | `DISABLED`, `OVERRIDE`, `TRACKING`, `LOST` or `SEARCH` (latched) |
 | `/follower/target` | `PointStamped`, the followed tag's or person's center in the camera frame (x right, y down, z forward) |
-| `/follower/image/compressed` | Camera view with detections outlined; the followed one in green with distance and bearing. Only encoded while subscribed. |
+| `/follower/annotations` | `foxglove_msgs/ImageAnnotations` drawn over the camera's own stream: every detection outlined, the followed one in green with distance and bearing, and the state with the stop distance. No re-encoding. |
+| `/follower/markers` | `MarkerArray` for the 3D view: the target (a person-sized cylinder or a flat tag) with a line and label, and an arc on the floor at the stop distance |
+| `/follower/image/compressed` | Off by default (`publish_debug_image: true`): a re-encoded copy of the camera with the same drawing, for tools other than Foxglove |
 
-Detection runs while following is off too, so check the **Follow** tab in
-Foxglove before pressing Y.
+The follower also publishes the static frame `follow_camera` on the robot
+(`camera.mount_*`: on the chest above the logo, a guess until measured), so the
+3D target moves with the robot. Detection runs while following is off too, so
+check the Overview in Foxglove before pressing Y.
 
 ## tag_follower
 
@@ -109,7 +114,10 @@ If it is mounted sideways or upside down, set `camera.rotation` (90, 180 or
 270 degrees clockwise) so frames reach the detector upright; calibrated
 intrinsics are then for the turned image.
 
-- **Bearing** (which way to turn) is nearly independent of calibration.
+- **Bearing** (which way to turn) is nearly independent of calibration. The
+  Arducam has a wide fisheye lens, so with the 90° pinhole guess the bearing
+  of a target far off to the side reads smaller than it is (left and right are
+  still right).
 - **Distance** is proportional to the focal length. Without calibration it
   is guessed from `camera.hfov_deg` (90°). Check it against a tape measure:
   if `/follower/target` z reads 1.2 m at a true 1.0 m, scale `hfov_deg` until it
