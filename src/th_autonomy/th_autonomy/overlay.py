@@ -29,10 +29,11 @@ FOLLOWING_STATES = ('TRACKING', 'LOST', 'SEARCH')
 
 @dataclass
 class Shape:
-    points: list            # [(x, y)] closed outline, pixels in the follower's (upright) frame
+    points: list            # [(x, y)] pixels in the follower's (upright) frame
     color: tuple = OTHER    # BGR 0-255
     label: str = ''
     thick: bool = False
+    closed: bool = True     # an outline; False: separate segments, points taken in pairs
 
 
 @dataclass
@@ -78,7 +79,8 @@ def annotations(stamp, shapes, status, rotation, width, height, scale):
     for s in shapes:
         raw = to_raw(s.points, rotation, width, height, scale)
         msg.points.append(PointsAnnotation(
-            timestamp=stamp, type=PointsAnnotation.LINE_LOOP,
+            timestamp=stamp,
+            type=PointsAnnotation.LINE_LOOP if s.closed else PointsAnnotation.LINE_LIST,
             points=[Point2(x=x, y=y) for x, y in raw],
             outline_color=_color(s.color), thickness=4.0 if s.thick else 2.0))
         if s.label:
@@ -98,7 +100,8 @@ def draw(image, shapes, status):
     """The same shapes drawn into a BGR image, for /follower/image/compressed."""
     for s in shapes:
         pts = [(int(round(x)), int(round(y))) for x, y in s.points]
-        for a, b in zip(pts, pts[1:] + pts[:1]):
+        segments = zip(pts, pts[1:] + pts[:1]) if s.closed else zip(pts[::2], pts[1::2])
+        for a, b in segments:
             cv2.line(image, a, b, s.color, 3 if s.thick else 1, cv2.LINE_AA)
         if s.label:
             x = min(p[0] for p in pts)

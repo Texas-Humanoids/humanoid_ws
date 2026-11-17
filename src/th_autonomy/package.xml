@@ -19,7 +19,8 @@
   <exec_depend>th_foxglove</exec_depend>
   <exec_depend>python3-numpy</exec_depend>
   <exec_depend>python3-opencv</exec_depend>
-  <!-- person_follower also needs the onnxruntime pip package (installed by both Dockerfiles). -->
+  <!-- person_follower runs its pose model with TensorRT and cuda-python (Dockerfile.gpu), or on
+       the CPU with the onnxruntime pip package (both Dockerfiles), much slower. -->
 
   <test_depend>python3-pytest</test_depend>
 

@@ -6,19 +6,20 @@ person_follower:
     mode_topic: /policy_bridge/mode
     button_topic: /gamepad/button_event
     joy_topic: /joy
-    toggle_event: Y pressed          # also locks on to whoever is in front
+    toggle_event: Y pressed          # starts following whoever claimed the robot, else the nearest
     stop_events: [B pressed, BACK pressed]
     override_button: 9               # LB: while held, the gamepad drives
     require_walk: true
     rate: 20.0
-    decode_scale: 1                  # the model sees 416x416 either way; 2 saves a little decoding
+    decode_scale: 1                  # the model sees 640x640 either way; 2 saves a little decoding
     publish_debug_image: false       # true: also /follower/image/compressed
     status_namespace: /follower      # state, target, camera overlay and 3D markers for the dashboard
 
-    model_path: models/yolox_nano.onnx  # tools/fetch_person_model.py; relative to the launch directory
-    score_threshold: 0.45
-    nms_threshold: 0.45
-    threads: 4                       # ONNX Runtime CPU threads (the Orin Nano has 6 cores)
+    model_path: models/rtmo-l.onnx   # tools/fetch_person_model.py; relative to the launch directory
+    backend: auto                    # tensorrt (GPU), onnxruntime (CPU, slow), or auto: GPU if available
+    score_threshold: 0.3             # weaker people only keep existing tracks alive
+    threads: 2                       # CPU threads, for the onnxruntime fallback
+    cpu_cores: [4, 5]                # run on these cores only, away from the motor and policy loops
 
     camera:
       fx: 0.0                        # calibrated intrinsics win when fx > 0
@@ -36,12 +37,18 @@ person_follower:
       mount_rpy: [0.0, 0.0, 0.0]
 
     track:
-      person_height: 1.7             # m; distance scales with this
-      shoulder_width: 0.45           # m
-      min_iou: 0.1
+      claim_time: 0.5                # s a hand must stay raised (wrist above head, elbow above shoulder)
+      raise_margin: 0.15             # wrist above the nose by this fraction of the torso
+      torso_length: 0.5              # m, shoulders to hips; distance scales with this
+      person_height: 1.7             # m, when the torso isn't visible
+      shoulder_width: 0.45           # m, when the torso isn't visible
+      keypoint_score: 0.3            # joints seen less surely are ignored
+      high_score: 0.5                # detections that can start a new track
+      match_iou: 0.2
+      low_match_iou: 0.4
+      track_buffer: 1.0              # s a track survives unseen
       min_similarity: 0.5            # clothing match needed to win back a lost person
-      hold_time: 0.6                 # s
-      forget_time: 4.0               # s, then lock on to the largest person again
+      forget_time: 4.0               # s, then wait for a raised hand (or Y) again
       histogram_update: 0.2
 
     follow:

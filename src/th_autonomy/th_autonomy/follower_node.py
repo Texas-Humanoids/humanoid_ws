@@ -32,6 +32,7 @@ Images are processed in their own callback group: with a MultiThreadedExecutor
 
 from dataclasses import dataclass
 import math
+import os
 import threading
 import time
 
@@ -97,6 +98,10 @@ class FollowerNode(Node):
         self.decode_flag = flags[self.decode_scale]
         self.publish_debug_image = bool(p('publish_debug_image', False).value)
         status = p('status_namespace', '/follower').value.rstrip('/')
+        # Keep detection off the cores the motor and policy loops use (empty: any core).
+        cores = [int(c) for c in p('cpu_cores', [-1]).value if int(c) >= 0]
+        if cores and hasattr(os, 'sched_setaffinity'):
+            pin_process(set(cores) & os.sched_getaffinity(0) or os.sched_getaffinity(0))
 
         # Calibrated intrinsics at full resolution (fx > 0), else a guess from hfov_deg.
         self.camera_fx = float(p('camera.fx', 0.0).value)
@@ -171,6 +176,10 @@ class FollowerNode(Node):
     def on_enable(self):
         """Following was just turned on."""
 
+    def status_hint(self):
+        """What to do next, shown on the dashboard while following is off."""
+        return 'Y to follow (in WALK)'
+
     # Inputs
 
     def now(self):
@@ -238,7 +247,7 @@ class FollowerNode(Node):
         stop = self.controller.params.target_distance
         state = self.state or ''
         status = f'{state} · stops {stop:.1f} m away' if state != 'DISABLED' else (
-            f'{state} · Y to follow (in WALK)')
+            f'{state} · {self.status_hint()}')
         if self.annotation_pub is not None:
             self.annotation_pub.publish(overlay.annotations(
                 msg.header.stamp, shapes, status, self.rotation, width, height, self.decode_scale))
@@ -301,6 +310,15 @@ class FollowerNode(Node):
         if self.publishing:
             self.cmd_pub.publish(Twist())
         super().destroy_node()
+
+
+def pin_process(cores):
+    """Run every thread of this process (and the ones it starts later) on `cores`."""
+    for task in os.listdir('/proc/self/task') if os.path.isdir('/proc/self/task') else ['0']:
+        try:
+            os.sched_setaffinity(int(task), cores)
+        except OSError:
+            pass
 
 
 def mount(stamp, parent, child, xyz, rpy):

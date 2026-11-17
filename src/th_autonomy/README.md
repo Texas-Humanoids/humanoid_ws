@@ -11,7 +11,8 @@ gamepad does: by publishing `/cmd_vel`. Nothing about the policy or bridge chang
 ```
 
 - **tag_follower**: walks to an AprilTag and stops 1 m in front of it.
-- **person_follower**: walks to a person and stops 1.5 m in front of them.
+- **person_follower**: walks to a person and stops 1.5 m in front of them. Raise a
+  hand to claim it. Its pose model needs the GPU (see below).
 
 Both share `follower_node.py` (camera in, `/cmd_vel` out, the gamepad rules
 below) and `follow_controller.py` (distance and bearing to a speed command), so
@@ -77,34 +78,65 @@ cv2.imwrite('tag0.png', cv2.copyMakeBorder(render_tag('tag36h11', 0, 800), 100, 
 
 ## person_follower
 
-Stand in front of the robot and press **Y**: it locks on to the largest
-(nearest) person in view and follows them, stopping 1.5 m away. It never backs
-up from a person.
+**Who it follows:**
+- **Raise a hand** (wrist above your head) for half a second to claim the robot.
+  A phone held to the ear doesn't count.
+  The dashboard shows the count-up ("hand up 60%") in magenta, then your box
+  turns green. Press **Y** to start.
+- **Y with nobody claimed** takes the largest (nearest) person.
+- **While it follows someone in view, nobody else can claim it.** If they are
+  lost, a raised hand from anyone takes over.
 
-**Setup:** the detector is YOLOX-Nano (Apache-2.0, 3.7 MB), run on the CPU
-with ONNX Runtime (already in both Docker images). Fetch it once from the
-workspace root; it goes in `models/`, which git ignores:
+It stops 1.5 m away and never backs up from a person.
+
+**Model:** RTMO-l (OpenMMLab, Apache-2.0), a one-stage pose model: one pass
+gives every person's box and 17 body joints, so its cost doesn't grow with the
+crowd. It runs on the Jetson's GPU with TensorRT in FP16 (`trt_runner.py`):
+
+| Model | GPU, FP16 (Orin Nano) | CPU (ONNX Runtime, 4 threads) |
+|---|---|---|
+| RTMO-s | 9 ms | 1.3 s |
+| RTMO-m | 16 ms | 2.4 s |
+| **RTMO-l** (default) | 23 ms | 4.6 s |
+
+The camera relay sends a frame about every 110 ms, so even the largest model
+keeps up with room to spare, and the CPU is left to the motors and policy. On
+the CPU alone it is far too slow, so the follower needs the GPU image. Fetch the model once from the workspace root; it goes in `models/`,
+which git ignores:
 
 ```bash
-python3 tools/fetch_person_model.py
+python3 tools/fetch_person_model.py            # rtmo-l (176 MB); --size m or s for the smaller ones
 ```
 
-**Speed:** about 130 ms per frame on the Orin Nano's CPU, so about 7 Hz. Detection
-runs in its own thread, so the 20 Hz command keeps its rate; between frames the
-controller holds the last target for `follow.hold_time` (0.6 s).
+The first start builds a TensorRT engine for the GPU and caches it next to the
+model (`models/rtmo-l.trt<version>.fp16.engine`), which takes about 10 minutes.
 
-**Several people in view:** the lock follows the same box from frame to frame
-(overlap) and remembers the colors of the person's shirt. If they disappear
-(behind someone, out of frame), only a shirt-color match takes them back, so it
-won't switch to a bystander. After `track.forget_time` (4 s) it gives up and
-locks on to the largest person. Press Y twice to re-lock on whoever is in front.
-People in similar clothes can still be confused once the target is out of view.
+**Running it on the robot:** the motors and policy stay in the `robot`
+container; the follower runs beside it in `perception`, which has the GPU:
 
-**Distance** comes from the box: the smaller of `fy * 1.7 m / box height` and
-`fx * 0.45 m / box width`. Close up, when the feet are out of frame, the box is
-short and the height estimate reads too far; the width estimate catches that,
-and both err toward stopping early. Tall or short people shift it by their
-height ratio (`track.person_height`).
+```bash
+docker compose --profile robot up -d --build
+docker compose exec robot bash      # robot.launch.py as usual, with follow:=none
+docker compose exec perception bash
+colcon build --packages-up-to th_autonomy && source install/setup.bash
+ros2 launch th_autonomy follow.launch.py target:=person
+```
+
+Both containers share the host network, so they see each other's topics. The
+follower runs only on CPU cores 4 and 5 (`cpu_cores`), so it can't delay the
+control loop on the others.
+
+**Several people in view:** each person gets a track id that stays with them
+(ByteTrack-style matching with motion prediction; doubtful detections, such as
+a person half hidden, keep a track alive but never start one). If the followed
+person disappears, only a new track with matching clothing takes them back, so
+it won't switch to a bystander. After `track.forget_time` (4 s) it gives up and
+waits for a raised hand (or Y again).
+
+**Distance** comes from the torso: shoulder midpoint to hip midpoint is about
+0.5 m (`track.torso_length`) and barely changes as people turn or swing their
+arms. Without a visible torso (too close, cut off) it falls back to the box:
+the smaller of `fy * 1.7 m / box height` and `fx * 0.45 m / box width`.
 
 ## Camera
 
@@ -145,9 +177,11 @@ colcon test-result --verbose
 
 Tests cover the controller (deadbands, turn-in-place, clamps, ramping,
 dropouts, search), detection and pose on rendered tags, the tag node over DDS
-(arming rules, Y/B/LB, the stop on disable, follows a rendered tag), YOLOX
-decoding, person distance, and the lock (keeps the same person among others,
-won't switch to a stranger, forgets after `forget_time`). The person node and
-the real model run when `models/yolox_nano.onnx` is present and are skipped
-otherwise. Not yet checked on hardware: blur while walking, real distance
+(arming rules, Y/B/LB, the stop on disable, follows a rendered tag), pose
+model input and output, distance from the torso and the box, raised-hand
+detection, track ids through motion, and who is followed (largest on Y, claims
+after `claim_time`, no claims while following someone in view, won back by
+clothing but not by a stranger, forgotten after `forget_time`). The real model
+runs when `models/rtmo-l.onnx` is present, and the person node only with
+TensorRT (the GPU image); they are skipped otherwise. Not yet checked on hardware: blur while walking, real distance
 accuracy, and the closed loop on the robot.

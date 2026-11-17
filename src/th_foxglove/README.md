@@ -59,7 +59,7 @@ nothing extra to run on the robot.
 | State, Health | `/policy_bridge/mode`, `/robot/health` | WALK / STAND / DISARMED, and OK / WARNING / FAULT for the motors, IMU and battery (details on the System tab) |
 | Battery dial | `/dashboard/telemetry` | 30-42 V for the 10S pack, with a numeric voltage readout. NO DATA in sim. |
 | Current dials | `/dashboard/telemetry` | Numeric estimates in A: total (30 A BMS) and per leg. Uses `/robot/current_*` calculations. See below. |
-| Camera | `/camera/image/compressed`, `/follower/annotations` | The bench camera ([tools/bench_camera](../../tools/bench_camera/README.md)). With a follower running, every detection is outlined and the followed one is green with its distance and bearing; the top line is the follower's state and stop distance. |
+| Camera | `/camera/image/compressed`, `/follower/annotations` | The bench camera ([tools/bench_camera](../../tools/bench_camera/README.md)). With a follower running, every detection is outlined (people with their skeleton and track id) and the followed one is green with its distance and bearing; magenta is someone raising a hand to claim the robot. The top line is the follower's state and what to do next. |
 
 **Joints**: one plot per joint (hip pitch, roll, yaw, knee, ankle), each with
 the left (blue) and right (orange) leg in degrees, measured as a solid line and

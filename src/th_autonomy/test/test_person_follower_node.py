@@ -10,7 +10,17 @@ from std_msgs.msg import String
 from test_person import MODEL
 from test_tag_follower_node import Harness
 
-pytestmark = pytest.mark.skipif(not MODEL.is_file(), reason='run tools/fetch_person_model.py')
+try:
+    import tensorrt  # noqa: F401
+    HAVE_GPU = True
+except ImportError:
+    HAVE_GPU = False
+
+pytestmark = [
+    pytest.mark.skipif(not MODEL.is_file(), reason='run tools/fetch_person_model.py'),
+    # On a CPU a frame takes seconds and starves this single-threaded test's timers.
+    pytest.mark.skipif(not HAVE_GPU, reason='needs TensorRT (the GPU image)'),
+]
 
 
 @pytest.fixture
