@@ -62,6 +62,7 @@ def test_markers_place_target_ahead_and_left():
     arc = by_id[3]
     assert arc.header.frame_id == 'base_footprint'
     assert all(math.hypot(q.x, q.y) == pytest.approx(1.5) for q in arc.points)
+    assert by_id[4].pose.position.y > 1.0  # the stop label sits off to the left
 
 
 def test_markers_without_target_keep_only_the_stop_arc():

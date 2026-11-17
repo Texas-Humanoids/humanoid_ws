@@ -164,7 +164,10 @@ def markers(header, camera_frame, floor_frame, position, label, following, stop_
     arc.points = [Point(x=stop_distance * math.cos(a), y=stop_distance * math.sin(a), z=0.01)
                   for a in (math.radians(d) for d in range(-60, 61, 5))]
     label_m = marker(4, Marker.TEXT_VIEW_FACING, floor_frame, 1.0)
-    label_m.pose.position = Point(x=stop_distance + 0.1, z=0.05)
+    # At the arc's left end, where the robot never hides it in the view from behind.
+    end = math.radians(60.0)
+    label_m.pose.position = Point(x=stop_distance * math.cos(end),
+                                  y=stop_distance * math.sin(end) + 0.15, z=0.05)
     label_m.scale.z = 0.1
     label_m.text = f'stop {stop_distance:.1f} m'
     label_m.color = _rgba((255, 255, 255), 0.7)
