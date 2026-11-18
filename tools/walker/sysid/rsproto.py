@@ -20,6 +20,7 @@ T_READ, T_WRITE, T_FAULT, T_ACTIVE = 0x11, 0x12, 0x15, 0x18
 P_RUN_MODE = 0x7005      # u8: 0 = MIT (operation control), 5 = CSP
 P_TORQUE_LIMIT = 0x700B  # float, Nm
 P_MECH_POS = 0x7019      # float, rad (true output angle, multi-turn)
+P_IQ = 0x701A            # float, A (q-axis current, filtered)
 P_MECH_VEL = 0x701B      # float, rad/s
 P_VBUS = 0x701C          # float, V
 P_CAN_TIMEOUT = 0x7028   # u32, 20000 counts per second

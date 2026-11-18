@@ -17,6 +17,13 @@ switch. Stop robot.launch.py and every robstride_motor_node first: they share th
   python3 tools/walker/sysid/chirp.py --id 14 all          # the five runs above (friction last)
   python3 tools/walker/sysid/chirp.py --id 14 top-speed    # separately: spins up to ~top speed
 
+Locked-output torque (a different bench setup, so never part of `all`): a rigid rod on the output
+pushes down on a scale, L metres from the motor axis. The script steps the torque, and you type
+the scale reading at each step. fit.py turns it into true torque / commanded torque, peak torque
+and the torque constant.
+  python3 tools/walker/sysid/chirp.py --id 21 stall --arm 0.15 --dir + --stall-max 12
+  python3 tools/walker/sysid/chirp.py --id 21 stall-hold --arm 0.15 --dir + --stall-max 20 --duration 180
+
 Add --sim to run against a simulated motor (no CAN, any OS) to preview a run. Each run writes
 <out>/<date>_m<id>_<test>/{meta.json, cmd.csv, fb.csv}. Exit code 0 = completed, 2 = aborted
 (the logs up to the abort are still written).
@@ -58,6 +65,8 @@ TOP_SPEED_KD = {'RS03': 2.0, 'RS02': 1.0, 'RS06': 2.0}
 
 # Spinning test last, so the position tests start near the motor's zero.
 ALL_SEQUENCE = ('torque-chirp', 'pos-chirp', 'pos-chirp@50', 'step', 'friction')
+# Locked-output tests: rod on the output, pressing on a scale. Never in `all` (opposite setup).
+STALL_TESTS = ('stall', 'stall-hold')
 
 
 class Abort(Exception):
@@ -103,6 +112,7 @@ class Profile:
     hold_rate: float = 0.0           # Hz; >0 = zero-order hold the command like the policy does
     describe: str = ''
     params: dict = field(default_factory=dict)
+    absolute_targets: bool = True    # sends MIT position targets (needs a sane start angle)
 
     def __call__(self, t: float) -> Command:
         if self.hold_rate > 0:
@@ -207,6 +217,224 @@ def spin_profile(v, kd, hold, ramp=1.0, pause=0.5):
                    params=dict(v=v, kd=kd, hold=hold, ramp=ramp, pause=pause, rewind=False))
 
 
+SCALE_UNITS = {'kg': 9.80665, 'g': 0.00980665, 'lb': 4.4482216, 'N': 1.0}   # -> newtons
+STALL_WINDOW = 0.5   # s of feedback before each scale reading that it is compared with
+
+
+class StallProfile:
+    """Locked output: a rod on the output presses on a scale. Feed-forward torque only (kp 0),
+    stepped through `levels` (Nm, magnitudes); `sign` is the direction that presses the rod onto
+    the scale. Each level is held until the operator types the scale reading (or `max_hold` s
+    pass), so this profile is driven by input as well as time: run_profile calls tick() every
+    cycle and stops when `done`.
+
+    hold_mode (stall-hold): one level held for `duration` s, readings taken whenever typed, for
+    heating and torque drop at a constant load."""
+
+    absolute_targets = False
+    hold_rate = 0.0
+
+    def __init__(self, name, levels, legs, sign, kd, arm, unit, travel, max_hold, brake_kd, ramp=0.3,
+                 hold_mode=False, duration=0.0, prompt_every=15.0, max_speed=1.5):
+        self.name, self.levels, self.legs, self.sign = name, list(levels), list(legs), sign
+        self.kd, self.arm, self.unit, self.max_excursion = kd, arm, unit, travel
+        # A locked output barely moves, so speed catches a slip within a few ms, before the travel
+        # limit; then the drive brakes with brake_kd (the deploy kd), not the gentle idle damping.
+        self.max_speed, self.brake_kd = max_speed, brake_kd
+        self.max_hold, self.ramp, self.hold_mode = max_hold, ramp, hold_mode
+        self.hold_seconds, self.prompt_every = duration, prompt_every
+        self.reader, self.log, self.link = None, None, None
+        # state
+        self.phase, self.i, self.t_phase, self.from_tau = 'ramp', 0, 0.0, 0.0
+        self.t_last_reading = 0.0
+        self.t_last_iq = -1.0
+        self.done = False
+        per = duration if hold_mode else max_hold
+        self.duration = len(self.levels) * (ramp + per) + ramp + 1.0   # upper bound, for the plan
+        top = max(self.levels)
+        self.describe = (f'feed-forward torque, kp 0 kd {kd:g}, pressing {"+" if sign > 0 else "-"}: '
+                         + (f'{top:g} Nm held {duration:g} s, scale read every ~{prompt_every:g} s'
+                            if hold_mode else
+                            f'{len(self.levels)} steps up to {top:g} Nm and back, each held until '
+                            f'you type the scale reading (max {max_hold:g} s)')
+                         + f'. Aborts if the output moves {travel:g} rad (rod slipped)')
+        self.params = dict(levels=self.levels, legs=self.legs, sign=sign, kd=kd, arm=arm, unit=unit,
+                           travel=travel, max_speed=max_speed, brake_kd=brake_kd, max_hold=max_hold,
+                           ramp=ramp, hold_mode=hold_mode,
+                           hold_seconds=duration, stall=True)
+
+    # ------------------------------------------------------------------ command
+    def level(self, t: float) -> float:
+        """Torque magnitude at run time t."""
+        if self.phase == 'ramp':
+            x = min(max((t - self.t_phase) / self.ramp, 0.0), 1.0)
+            return self.from_tau + (self.levels[self.i] - self.from_tau) * x
+        if self.phase == 'hold':
+            return self.levels[self.i]
+        if self.phase == 'end':
+            x = min(max((t - self.t_phase) / self.ramp, 0.0), 1.0)
+            return self.from_tau * (1.0 - x)
+        return 0.0
+
+    def __call__(self, t: float) -> Command:
+        return Command(kd=self.kd, tau=self.sign * self.level(t))
+
+    # ------------------------------------------------------------------ operator / state
+    def attach(self, reader, log, link):
+        self.reader, self.log, self.link = reader, log, link
+        log.setdefault('readings', [])
+        log.setdefault('iq', [])
+
+    def waiting(self) -> bool:
+        return self.phase == 'hold'
+
+    def wants_reading(self, t: float) -> bool:
+        """For the simulated operator: when a person would read the scale."""
+        if not self.waiting():
+            return False
+        if self.hold_mode:
+            return t - max(self.t_phase, self.t_last_reading) >= self.prompt_every
+        return t - self.t_phase >= 1.0
+
+    def window(self, t: float):
+        """Mean (drive torque estimate, q, temp, iq) over the STALL_WINDOW before t, within this hold."""
+        lo = max(t - STALL_WINDOW, self.t_phase)
+        fb = [r for r in self.log['fb'] if lo <= r[0] <= t]
+        iq = [v for ti, v in self.log['iq'] if lo <= ti <= t]
+        mean = (lambda xs: sum(xs) / len(xs) if xs else float('nan'))
+        return (mean([r[4] for r in fb]), mean([r[2] for r in fb]), mean([r[5] for r in fb]), mean(iq))
+
+    def prompt(self):
+        lvl = self.levels[self.i]
+        if self.hold_mode:
+            print(f'  holding {lvl:g} Nm for {self.hold_seconds:g} s. Type the scale reading ({self.unit}) '
+                  f'+ Enter whenever you like (about every {self.prompt_every:g} s); q + Enter stops.',
+                  flush=True)
+        else:
+            print(f'  step {self.i + 1}/{len(self.levels)} ({self.legs[self.i]}): {lvl:g} Nm. Scale '
+                  f'reading in {self.unit} + Enter (Enter alone skips, q stops):', flush=True)
+
+    def record(self, t: float, value: float):
+        lvl = self.levels[self.i]
+        tau_est, q, temp, iq = self.window(t)
+        true = value * SCALE_UNITS[self.unit] * self.arm
+        self.log['readings'].append(dict(t=t, t_from=max(t - STALL_WINDOW, self.t_phase), step=self.i,leg=self.legs[self.i], tau_cmd=lvl,
+                                         reading=value, unit=self.unit, tau_true=true,
+                                         tau_drive=abs(tau_est), iq=abs(iq), temp=temp, q=q))
+        self.t_last_reading = t
+        print(f'    {lvl:g} Nm commanded -> scale {value:g} {self.unit} = {true:.2f} Nm at the output '
+              f'({true / lvl:.3f}x); drive estimate {abs(tau_est):.2f} Nm, iq {abs(iq):.2f} A, '
+              f'{temp:.1f} C', flush=True)
+
+    def next_level(self, t: float):
+        self.from_tau = self.level(t)
+        self.i += 1
+        if self.i >= len(self.levels):
+            self.phase, self.t_phase = 'end', t
+        else:
+            self.phase, self.t_phase = 'ramp', t
+
+    def stop(self, t: float):
+        self.from_tau = self.level(t)
+        self.phase, self.t_phase = 'end', t
+
+    def tick(self, t: float):
+        # q-axis current at 20 Hz, answered between status replies (on_other_frame)
+        if self.link is not None and t - self.t_last_iq >= 0.05:
+            self.link.send(rs.read_param(self.link.id, rs.P_IQ))
+            self.t_last_iq = t
+        if self.phase == 'ramp' and t - self.t_phase >= self.ramp:
+            if self.reader:
+                self.reader.poll(self, t)   # drop anything typed during the ramp: it was the old level
+            self.phase, self.t_phase, self.t_last_reading = 'hold', t, t
+            self.prompt()
+        elif self.phase == 'hold':
+            for line in self.reader.poll(self, t) if self.reader else []:
+                line = line.strip()
+                if line.lower() in ('q', 'quit', 'stop'):
+                    print('  stopping: ramping the torque down', flush=True)
+                    self.stop(t)
+                    return
+                if not line:
+                    if not self.hold_mode:
+                        print('    skipped', flush=True)
+                        self.next_level(t)
+                        return
+                    continue
+                try:
+                    value = float(line)
+                except ValueError:
+                    print(f'    "{line}" is not a number; type the reading in {self.unit}', flush=True)
+                    continue
+                if value < 0:
+                    print('    a reading below 0: was the scale tared with the motor off?', flush=True)
+                self.record(t, value)
+                if not self.hold_mode:
+                    self.next_level(t)
+                    return
+            held = t - self.t_phase
+            if self.hold_mode and held >= self.hold_seconds:
+                self.next_level(t)
+            elif not self.hold_mode and held >= self.max_hold:
+                print(f'    no reading after {self.max_hold:g} s: moving on', flush=True)
+                self.next_level(t)
+        elif self.phase == 'end' and t - self.t_phase >= self.ramp:
+            self.phase, self.done = 'done', True
+
+    def on_other_frame(self, fr, t0: float):
+        cid, data, t_rx = fr
+        if rs.comm_type(cid) != rs.T_READ or self.link is None:
+            return
+        mid, idx, val = rs.decode_param_reply(cid, data)
+        if mid == self.link.id and idx == rs.P_IQ:
+            self.log['iq'].append((t_rx - t0, val))
+
+
+class StdinReader:
+    """Lines the operator typed, without blocking the control loop (POSIX: select on stdin)."""
+
+    def poll(self, prof, t):
+        import select
+        lines = []
+        while select.select([sys.stdin], [], [], 0.0)[0]:
+            line = sys.stdin.readline()
+            if line == '':      # EOF
+                break
+            lines.append(line)
+        return lines
+
+
+class SimScale:
+    """The simulated operator: reads the simulated scale ~1 s into each step."""
+
+    def __init__(self, motor, arm, unit, noise=0.003, seed=1):
+        self.motor, self.arm, self.unit = motor, arm, unit
+        self.rng = random.Random(seed)
+        self.noise = noise
+
+    def poll(self, prof, t):
+        if not prof.wants_reading(t):
+            return []
+        newton = self.motor.wall_force / self.arm
+        return [f'{newton / SCALE_UNITS[self.unit] * (1 + self.rng.gauss(0, self.noise)):.4f}']
+
+
+def stall_profile(test: str, a, model: str):
+    sign = 1.0 if a.dir in ('+', 'pos', 'positive') else -1.0
+    kd = a.kd if a.kd is not None else a.damping_kd
+    brake = DEPLOY_GAINS[model][1]
+    top = a.stall_max
+    if test == 'stall-hold':
+        return StallProfile('stall-hold', [top], ['hold'], sign, kd, a.arm, a.scale_unit, a.stall_travel,
+                            a.max_hold, brake, hold_mode=True, duration=a.duration or 120.0,
+                            prompt_every=a.prompt_every)
+    n = a.levels
+    up = [round(top * k / n, 3) for k in range(1, n + 1)]
+    down = up[-2::-1]
+    return StallProfile('stall', up + down, ['up'] * n + ['down'] * (n - 1), sign, kd, a.arm,
+                        a.scale_unit, a.stall_travel, a.max_hold, brake)
+
+
 def itertools_accumulate(xs):
     total = 0.0
     for x in xs:
@@ -240,6 +468,8 @@ def build_profile(test: str, model: str, a) -> Profile:
         sign = 1.0 if a.dir in ('+', 'pos', 'positive') else -1.0
         return spin_profile(sign * a.speed, kd if kd is not None else TOP_SPEED_KD[model],
                             a.duration or 5.0, a.ramp)
+    if test in STALL_TESTS:
+        return stall_profile(test, a, model)
     raise ValueError(test)
 
 
@@ -324,9 +554,17 @@ class SimMotor:
     leave `reply_latency` s after a command. Used by --sim and by the tests."""
 
     def __init__(self, motor_id, model, J=0.07, b=0.01, Fc=0.15, delay=0.003, vbus=36.4,
-                 reply_latency=0.0006, tau_noise=0.01, temp=32.0, q0=0.3, seed=0):
+                 reply_latency=0.0006, tau_noise=0.01, temp=32.0, q0=0.3, seed=0,
+                 tau_gain=1.0, kt=2.0, wall_k=0.0, wall_c=20.0, wall_dir=0.0):
         self.id, self.r = motor_id, rs.RANGES[model]
         self.J, self.b, self.Fc, self.delay = J, b, Fc, delay
+        # Locked-output tests: output torque = tau_gain x what the drive thinks it applies; iq =
+        # output torque / kt. A one-sided spring (the rod on the scale) at wall_q resists motion in
+        # wall_dir; wall_force is the torque it carries (what the scale sees).
+        self.tau_gain, self.kt = tau_gain, kt
+        self.wall_k, self.wall_c, self.wall_dir, self.wall_q = wall_k, wall_c, wall_dir, None
+        self.wall_force = 0.0
+        self.wall_off_at = None              # inject: the rod slips off the scale at this time
         self.vnl = NO_LOAD_48V[model] * vbus / 48.0
         self.vbus, self.reply_latency, self.tau_noise, self.temp = vbus, reply_latency, tau_noise, temp
         self.q, self.v, self.tau, self.t = q0, 0.0, 0.0, None
@@ -369,8 +607,18 @@ class SimMotor:
             else:
                 tau = 0.0
             self.tau = tau
+            if self.wall_off_at is not None and self.t >= self.wall_off_at:
+                self.wall_k = 0.0
+            tw = 0.0
+            if self.wall_k > 0 and self.wall_q is not None:
+                pen = self.wall_dir * (self.q - self.wall_q)
+                f = max(0.0, self.wall_k * pen + self.wall_c * self.wall_dir * self.v) if pen > 0 else 0.0
+                tw = -self.wall_dir * f
+                self.wall_force = f
+            else:
+                self.wall_force = 0.0
             h = min(self.dt, t - self.t)
-            a = (tau - self.b * self.v - self.Fc * math.tanh(self.v / 0.01)) / self.J
+            a = (self.tau_gain * tau + tw - self.b * self.v - self.Fc * math.tanh(self.v / 0.01)) / self.J
             self.v += h * a
             self.q += h * self.v
             self.t += h
@@ -408,7 +656,8 @@ class SimMotor:
         elif ct == rs.T_READ:
             index = struct.unpack('<H', data[:2])[0]
             val = {rs.P_VBUS: self.vbus, rs.P_MECH_POS: self.q, rs.P_MECH_VEL: self.v,
-                   rs.P_TORQUE_LIMIT: self.torque_limit}.get(index, self.written.get(index, 0.0))
+                   rs.P_TORQUE_LIMIT: self.torque_limit,
+                   rs.P_IQ: self.tau_gain * self.tau / self.kt}.get(index, self.written.get(index, 0.0))
             if index in self.unreadable:
                 val = 0.0
             self.outbox.append((t + self.reply_latency, 'param', (index, val)))
@@ -689,10 +938,16 @@ def run_profile(link: Link, clock, prof: Profile, sess: Session, a, log):
     last_fb = t0
     reason = None
     try:
+        tick = getattr(prof, 'tick', None)              # input-driven profiles (stall)
+        other = getattr(prof, 'on_other_frame', None)   # parameter replies they asked for
         while True:
             now = clock.now()
             t = now - t0
-            if t >= prof.duration:
+            if tick:
+                tick(t)
+                if prof.done:
+                    break
+            elif t >= prof.duration:
                 break
             c = prof(t)
             q_ref = q0 + c.dq
@@ -708,6 +963,8 @@ def run_profile(link: Link, clock, prof: Profile, sess: Session, a, log):
                     continue
                 cl = link.classify(fr)
                 if not cl:
+                    if other:
+                        other(fr, t0)
                     continue
                 if cl[0] == 'fault':
                     raise Abort(f'fault report from the motor: {cl[1].hex()}')
@@ -720,7 +977,14 @@ def run_profile(link: Link, clock, prof: Profile, sess: Session, a, log):
                     raise Abort(f'motor left running mode (mode {st.mode}): CAN timeout or a fault')
                 if st.temp > a.max_temp:
                     raise Abort(f'temperature {st.temp:.1f} C > {a.max_temp:g} C')
+                if tick and abs(st.v) > prof.max_speed:
+                    raise Abort(f'output turning at {st.v:+.2f} rad/s (limit {prof.max_speed:g}): the rod '
+                                f'slipped off the scale, or --dir lifts it instead of pressing it down')
                 if prof.max_excursion is not None and abs(st.q - q0) > prof.max_excursion:
+                    if tick:
+                        raise Abort(f'moved {st.q - q0:+.3f} rad from the start (limit '
+                                    f'{prof.max_excursion:g}): the rod slipped off the scale, or '
+                                    f'--dir lifts it instead of pressing it down')
                     raise Abort(f'moved {st.q - q0:+.2f} rad from the start (limit '
                                 f'{prof.max_excursion:g}): gain scaling or a profile problem')
             if clock.now() - last_fb > a.feedback_timeout:
@@ -736,13 +1000,14 @@ def run_profile(link: Link, clock, prof: Profile, sess: Session, a, log):
     return reason
 
 
-def finish(link: Link, clock, a) -> float | None:
-    """Damping for 0.5 s, then stop. Returns the last temperature seen."""
+def finish(link: Link, clock, a, kd: float | None = None) -> float | None:
+    """Damping (a.damping_kd, or `kd`) for 0.5 s, then stop. Returns the last temperature seen."""
     temp = None
+    kd = a.damping_kd if kd is None else kd
     end = clock.now() + 0.5
     try:
         while clock.now() < end:
-            st = link.exchange(0.0, 0.0, 0.0, a.damping_kd, 0.0, timeout=0.01)
+            st = link.exchange(0.0, 0.0, 0.0, kd, 0.0, timeout=0.01)
             if st:
                 temp = st.temp
             clock.sleep(0.01)
@@ -774,6 +1039,11 @@ def write_logs(out_dir, meta, log):
         w = csv.writer(f)
         w.writerow(['t', 'type', 'q', 'v', 'tau', 'temp', 'mode', 'faults'])
         w.writerows([[f'{x:.6f}' if isinstance(x, float) else x for x in row] for row in log['fb']])
+    if log.get('iq'):
+        with open(os.path.join(out_dir, 'iq.csv'), 'w', newline='') as f:
+            w = csv.writer(f)
+            w.writerow(['t', 'iq'])
+            w.writerows([[f'{t:.6f}', f'{v:.4f}'] for t, v in log['iq']])
     with open(os.path.join(out_dir, 'meta.json'), 'w') as f:
         json.dump(meta, f, indent=1)
 
@@ -813,13 +1083,26 @@ def one_run(test: str, a, model: str, make_link) -> bool:
     meta = dict(motor_id=a.id, model=model, iface=a.iface, sim=a.sim, test=prof.name,
                 profile=prof.params, describe=prof.describe, duration=prof.duration, rate=a.rate,
                 torque_limit=a.torque_limit, damping_kd=a.damping_kd, can_timeout=a.can_timeout,
+                max_temp=a.max_temp,
                 ranges=rs.RANGES[model].__dict__, date=stamp, host=platform.node(), git=git_rev(),
                 note=a.note)
     if sim_motor is not None:
         meta['sim_truth'] = dict(J=sim_motor.J, b=sim_motor.b, Fc=sim_motor.Fc, delay=sim_motor.delay)
+    if isinstance(prof, StallProfile):
+        if sim_motor is not None:
+            # The rod rests on the scale where the output is now; pressing `sign` compresses it.
+            # (Unless a test hook placed the scale already, e.g. on the wrong side.)
+            if sim_motor.wall_q is None:
+                sim_motor.wall_q, sim_motor.wall_dir = sim_motor.q, prof.sign
+                sim_motor.wall_k = sim_motor.wall_k or 2000.0
+            meta['sim_truth'].update(tau_gain=sim_motor.tau_gain, kt=sim_motor.kt)
+            reader = SimScale(sim_motor, prof.arm, prof.unit)
+        else:
+            reader = StdinReader()
+        prof.attach(reader, log, link)
     reason = None
     try:
-        sess = start(link, a, needs_position=prof.max_excursion is not None)
+        sess = start(link, a, needs_position=prof.max_excursion is not None and prof.absolute_targets)
         meta.update(q_start=sess.q_start, vbus_start=sess.vbus_start, mech_pos_start=sess.mech_pos,
                     temp_start=sess.temp_start)
         print(f'[{prof.name}] start angle {sess.q_start:+.3f} rad, bus {sess.vbus_start:.1f} V, '
@@ -842,13 +1125,15 @@ def one_run(test: str, a, model: str, make_link) -> bool:
               f'dmesg), so bring it up with  sudo ip link set {a.iface} up type can bitrate 1000000. '
               f'The motor stops itself after the {a.can_timeout:g} s CAN timeout.', flush=True)
     finally:
-        temp_end = finish(link, clock, a)
+        temp_end = finish(link, clock, a, kd=getattr(prof, 'brake_kd', None))
         try:
             meta['vbus_end'] = link.read_param(rs.P_VBUS)
         except Exception:  # noqa: BLE001
             meta['vbus_end'] = None
         bus.close()
     per = log['periods']
+    if 'readings' in log:
+        meta['readings'] = log['readings']
     meta.update(aborted=reason, completed=reason is None, temp_end=temp_end,
                 n_cmd=len(log['cmd']), n_fb=len(log['fb']), overruns=log['overruns'],
                 period_ms=dict(p50=percentile(per, 50) * 1e3, p99=percentile(per, 99) * 1e3,
@@ -873,7 +1158,7 @@ def parse_args(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split('\n\n')[0],
                                  formatter_class=argparse.RawDescriptionHelpFormatter, epilog=__doc__)
     ap.add_argument('test', choices=['friction', 'torque-chirp', 'pos-chirp', 'step', 'top-speed', 'spin',
-                                     'all'])
+                                     'all', *STALL_TESTS])
     ap.add_argument('--id', type=int, required=True, help='motor CAN ID')
     ap.add_argument('--model', choices=sorted(rs.RANGES), help='default: from the ID (11-15, 21-25)')
     ap.add_argument('--iface', default='auto', help='CAN interface; auto = the one the motor answers on')
@@ -902,8 +1187,20 @@ def parse_args(argv=None):
     ap.add_argument('--vmax', type=float, help='top-speed target, rad/s')
     ap.add_argument('--speed', type=float, help='spin: rad/s (> 0)')
     ap.add_argument('--dir', choices=['+', '-', 'pos', 'neg', 'positive', 'negative'],
-                    help='spin: direction (motor frame, + = increasing angle)')
+                    help='spin: direction (motor frame, + = increasing angle). stall: the direction '
+                         'that presses the rod down onto the scale')
     ap.add_argument('--ramp', type=float, default=1.0, help='spin: s to reach the speed and to stop')
+    ap.add_argument('--arm', type=float, help='stall: m from the motor axis to where the rod touches the scale')
+    ap.add_argument('--stall-max', type=float,
+                    help='stall: highest torque step, Nm (default: the test cap, RS03 12 / RS02 4 / RS06 8). '
+                         'The drive torque limit is set to 1.1x this unless --torque-limit is given')
+    ap.add_argument('--levels', type=int, default=8, help='stall: steps up to --stall-max (then back down)')
+    ap.add_argument('--max-hold', type=float, default=15.0,
+                    help='stall: s to wait for a reading before moving to the next step')
+    ap.add_argument('--stall-travel', type=float, default=0.05,
+                    help='stall: abort if the output turns this far, rad (rod slipped)')
+    ap.add_argument('--scale-unit', choices=sorted(SCALE_UNITS), default='kg', help='stall: what the scale shows')
+    ap.add_argument('--prompt-every', type=float, default=15.0, help='stall-hold: s between scale readings')
     ap.add_argument('--note', default='', help='free text stored in meta.json')
     ap.add_argument('--yes', action='store_true', help='skip the confirmation prompt')
     ap.add_argument('--rewind-only', action='store_true',
@@ -916,6 +1213,26 @@ def parse_args(argv=None):
         if a.id // 10 not in (1, 2) or slot not in MODEL_BY_SLOT:
             ap.error(f'ID {a.id} is not in the 11-15 / 21-25 scheme; pass --model')
         a.model = MODEL_BY_SLOT[slot]
+    if a.test in STALL_TESTS:
+        peak = rs.RANGES[a.model].torque_max
+        if a.arm is None or a.dir is None:
+            ap.error(f'{a.test} needs --arm (m, motor axis to the scale contact) and --dir (+ or -, the '
+                     f'direction that presses the rod onto the scale)')
+        if not 0.03 <= a.arm <= 2.0:
+            ap.error('--arm must be in [0.03, 2] m')
+        if a.stall_max is None:
+            a.stall_max = TORQUE_CAP[a.model]
+        if not 0 < a.stall_max <= peak:
+            ap.error(f'--stall-max must be in (0, {peak:g}] Nm for {a.model}')
+        if a.torque_limit is None:
+            a.torque_limit = min(peak, round(1.1 * a.stall_max, 2))
+        elif a.torque_limit < a.stall_max:
+            ap.error(f'--torque-limit {a.torque_limit:g} is below --stall-max {a.stall_max:g}: the drive '
+                     f'would clip the top steps')
+        if not 2 <= a.levels <= 30 or not 1 <= a.max_hold <= 120 or not 0.01 <= a.stall_travel <= 0.5:
+            ap.error('stall: --levels in [2, 30], --max-hold in [1, 120] s, --stall-travel in [0.01, 0.5] rad')
+        if a.test == 'stall-hold' and not 0 < (a.duration or 120.0) <= 1800:
+            ap.error('stall-hold: --duration in (0, 1800] s')
     if a.torque_limit is None:
         a.torque_limit = TORQUE_CAP[a.model]
     if not 0 < a.torque_limit <= rs.RANGES[a.model].torque_max:
@@ -986,9 +1303,15 @@ def main(argv=None, sim_motor_hook=None) -> int:
     for t in tests:
         p = build_profile(t, model, a)
         print(f'  {p.name:14s} {p.duration:5.0f} s  {p.describe}')
+    if a.test in STALL_TESTS:
+        print(f'Rod on the output, its contact point {a.arm:g} m from the motor axis, resting on the scale; '
+              f'turning {a.dir} presses it DOWN. Scale tared with the rod resting and the motor off, in '
+              f'{a.scale_unit}. Expect up to {a.stall_max / a.arm / SCALE_UNITS[a.scale_unit]:.2f} '
+              f'{a.scale_unit} on the scale: it must read that much. Nobody in the rod\'s swing.')
     if not a.sim and not a.yes:
-        print('Nothing attached to the output, housing clamped, hand on the power switch, '
-              'motor nodes stopped?')
+        print(('Housing clamped' if a.test in STALL_TESTS else
+               'Nothing attached to the output, housing clamped') +
+              ', hand on the power switch, motor nodes stopped?')
         if input('Run? [y/N] ').strip().lower() != 'y':
             print('Not run.')
             return 1
