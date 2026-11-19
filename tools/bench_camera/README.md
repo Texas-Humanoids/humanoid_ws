@@ -25,6 +25,9 @@ on the Jetson). The camera only streams at full rate while someone is watching.
 ```
 
 Settings (device, resolution, fps, port) live in `/etc/default/bench-camera`.
+`install.sh` doesn't overwrite an existing copy, so compare it with
+[`bench-camera.env`](bench-camera.env) after pulling changes to that file.
+Keep `CAMERA_RESOLUTION=1280x720` unless you redo the [lens calibration](#lens-calibration).
 After editing them:
 
 ```bash
@@ -54,6 +57,9 @@ in OpenCV `FileStorage` format. The lens is wide (about 92° horizontal) and ben
 straight lines near the edges, so anything that measures distances or angles from
 the image (e.g. AprilTag distance and bearing) needs it.
 
+> **Absolute distances are not verified yet.** A first check read about 20% long;
+> see [Distance check](#distance-check-not-yet-conclusive). Bearings are fine to use.
+
 | | |
 |---|---|
 | Camera | Arducam 1080P Low Light (UC684), USB, `video-index0`, MJPEG |
@@ -64,12 +70,23 @@ the image (e.g. AprilTag distance and bearing) needs it.
 | Reprojection error | 0.52 px over 35 views |
 | Horizontal field of view | about 92° |
 
-Load it with OpenCV:
+Load it with OpenCV, and check the frame size matches (a missing file doesn't
+raise, it just returns empty nodes):
 
 ```python
+import cv2
+
 fs = cv2.FileStorage("tools/bench_camera/camera_bench.yaml", cv2.FILE_STORAGE_READ)
+assert fs.isOpened(), "camera_bench.yaml not found"
 K, dist = fs.getNode("camera_matrix").mat(), fs.getNode("dist_coeffs").mat()
+calib_size = (int(fs.getNode("image_width").real()), int(fs.getNode("image_height").real()))
+
+h, w = frame.shape[:2]
+assert (w, h) == calib_size, f"calibrated for {calib_size}, got {(w, h)}"
 ```
+
+The file is OpenCV `FileStorage` YAML (`!!opencv-matrix`), not the ROS
+`camera_info` YAML that `camera_info_manager` reads.
 
 perception-lab's `live_detect.py` takes it as `--camera-file`. Its ROS node does too
 (`camera_file:=`), but only pass it there when the node is fed this camera; the
@@ -112,10 +129,18 @@ median over 5 frames (`cv2.solvePnP`, lens to board plane):
 | Run 4 | 0.681 m | +11.8% |
 | Run 1 | 0.662 m | +8.7% |
 
-The 20% gap is either the estimated height (0.733 m is 29 in) or an error in
-the calibration's focal length. It has to be settled with a tape-measured height before relying
-on absolute distances. Run 6's internal checks are good (0.52 px, fx ≈ fy, centre near
-the image centre, agreement with run 5), but they can't rule out a scale error on their own.
+The measured distance scales with fx (run 1: fx ratio 0.905, distance ratio 0.903;
+run 5: 1.039 vs 1.038), so 0.610 m would need fx ≈ 510 px, below every run (537-693).
+A focal-length error that large is unlikely. The more likely causes are:
+
+- the estimated height (0.733 m is 29 in, a plausible misjudgement of 2 ft), or
+- the square size given to `solvePnP` for the check. Intrinsics don't depend on
+  square size, but PnP distance scales with it directly, so it must be the
+  printed 20 mm.
+
+Settle it with a tape-measured height before relying on absolute distances. Run 6's
+internal checks are good (0.52 px, fx ≈ fy, centre near the image centre, agreement
+with run 5), but they can't rule out a scale error on their own.
 
 ### Redoing it
 
