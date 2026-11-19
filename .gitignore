@@ -6,6 +6,7 @@ log*/
 
 # Python
 /policies/policy_humanoid.onnx
+/models/
 __pycache__/
 *.pyc
 .venv/

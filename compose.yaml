@@ -55,3 +55,24 @@ services:
       - .:/ws
       - /dev:/dev
       - /run/udev:/run/udev:ro
+
+  # On the robot computer, next to `robot`: th_autonomy's person follower, whose
+  # pose model needs the GPU (TensorRT). Same ROS network as `robot` (host
+  # networking and shared memory); only the GPU, no hardware access.
+  perception:
+    profiles: [robot]
+    build:
+      context: .
+      dockerfile: Dockerfile.gpu
+    image: humanoid-ros:gpu
+    network_mode: host
+    ipc: host
+    runtime: nvidia  # the Jetson's GPU (its driver has no CDI spec for `devices: nvidia.com/gpu`)
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    stdin_open: true
+    tty: true
+    command: sleep infinity
+    volumes:
+      - .:/ws

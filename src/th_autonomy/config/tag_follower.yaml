@@ -1,0 +1,55 @@
+tag_follower:
+  ros__parameters:
+    image_topic: /camera/image/compressed  # th_foxglove's mjpeg_camera relay
+    cmd_vel_topic: /cmd_vel
+    mode_topic: /policy_bridge/mode
+    button_topic: /gamepad/button_event
+    joy_topic: /joy
+    toggle_event: Y pressed          # toggles following (only turns on in WALK)
+    stop_events: [B pressed, BACK pressed]
+    override_button: 9               # LB: while held, the gamepad drives
+    require_walk: true
+    rate: 20.0                       # Hz, /cmd_vel while following
+
+    tag_family: tag36h11
+    tag_size: 0.16                   # m, side of the outer black square as printed
+    target_id: -1                    # -1 = nearest tag of any id
+    refine_corners: true
+    decode_scale: 1                  # 1, 2, 4 or 8: decode the JPEG at 1/n size (faster, shorter range)
+    publish_debug_image: false       # true: also /follower/image/compressed, a re-encoded annotated copy
+    status_namespace: /follower      # state, target, camera overlay and 3D markers for the dashboard
+
+    camera:
+      # Calibrated intrinsics at the stream's full resolution (fx > 0 uses them).
+      fx: 0.0
+      fy: 0.0
+      cx: 0.0
+      cy: 0.0
+      distortion: [0.0]
+      # Otherwise a pinhole guess from the horizontal field of view. Bearing is
+      # close either way; distance scales with this, so check it with a tape measure.
+      hfov_deg: 90.0
+      rotation: 0                    # degrees clockwise to turn frames upright; 180 = mounted upside down
+      # Where it sits on the robot, for the 3D view: on the chest above the logo (a guess;
+      # measure once mounted). Relative to base_link: x forward, y left, z up (m), and
+      # roll, pitch, yaw (rad; pitch > 0 tilts it down).
+      mount_parent: base_link
+      mount_xyz: [0.07, 0.0, 0.27]
+      mount_rpy: [0.0, 0.0, 0.0]
+
+    follow:
+      target_distance: 1.0           # m
+      distance_deadband: 0.1
+      k_forward: 0.6
+      max_forward: 0.3               # m/s; policy trained up to 0.5
+      max_backward: 0.1              # m/s; 0 = never back up
+      k_yaw: 1.2
+      yaw_deadband: 0.05             # rad
+      max_yaw_rate: 0.4              # rad/s; policy trained up to 0.5
+      walk_bearing: 0.6              # rad; turn in place beyond this
+      max_linear_accel: 0.4          # m/s^2
+      max_yaw_accel: 1.0             # rad/s^2
+      smoothing: 0.4
+      hold_time: 0.3                 # s
+      search_yaw_rate: 0.0           # rad/s; > 0 turns toward a lost tag
+      search_after: 1.0              # s

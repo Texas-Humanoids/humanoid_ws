@@ -1,0 +1,69 @@
+person_follower:
+  ros__parameters:
+    # Topics, gamepad and safety: same meaning as in tag_follower.yaml.
+    image_topic: /camera/image/compressed
+    cmd_vel_topic: /cmd_vel
+    mode_topic: /policy_bridge/mode
+    button_topic: /gamepad/button_event
+    joy_topic: /joy
+    toggle_event: Y pressed          # starts following whoever claimed the robot, else the nearest
+    stop_events: [B pressed, BACK pressed]
+    override_button: 9               # LB: while held, the gamepad drives
+    require_walk: true
+    rate: 20.0
+    decode_scale: 1                  # the model sees 640x640 either way; 2 saves a little decoding
+    publish_debug_image: false       # true: also /follower/image/compressed
+    status_namespace: /follower      # state, target, camera overlay and 3D markers for the dashboard
+
+    model_path: models/rtmo-l.onnx   # tools/fetch_person_model.py; relative to the launch directory
+    backend: auto                    # tensorrt (GPU), onnxruntime (CPU, slow), or auto: GPU if available
+    score_threshold: 0.3             # weaker people only keep existing tracks alive
+    threads: 2                       # CPU threads, for the onnxruntime fallback
+    cpu_cores: [4, 5]                # run on these cores only, away from the motor and policy loops
+
+    camera:
+      fx: 0.0                        # calibrated intrinsics win when fx > 0
+      fy: 0.0
+      cx: 0.0
+      cy: 0.0
+      distortion: [0.0]
+      hfov_deg: 90.0
+      rotation: 0                    # degrees clockwise to turn frames upright; 180 = mounted upside down
+      # Where it sits on the robot, for the 3D view: on the chest above the logo (a guess;
+      # measure once mounted). Relative to base_link: x forward, y left, z up (m), and
+      # roll, pitch, yaw (rad; pitch > 0 tilts it down).
+      mount_parent: base_link
+      mount_xyz: [0.07, 0.0, 0.27]
+      mount_rpy: [0.0, 0.0, 0.0]
+
+    track:
+      claim_time: 0.5                # s a hand must stay raised (wrist above head, elbow above shoulder)
+      raise_margin: 0.15             # wrist above the nose by this fraction of the torso
+      torso_length: 0.5              # m, shoulders to hips; distance scales with this
+      person_height: 1.7             # m, when the torso isn't visible
+      shoulder_width: 0.45           # m, when the torso isn't visible
+      keypoint_score: 0.3            # joints seen less surely are ignored
+      high_score: 0.5                # detections that can start a new track
+      match_iou: 0.2
+      low_match_iou: 0.4
+      track_buffer: 1.0              # s a track survives unseen
+      min_similarity: 0.5            # clothing match needed to win back a lost person
+      forget_time: 4.0               # s, then wait for a raised hand (or Y) again
+      histogram_update: 0.2
+
+    follow:
+      target_distance: 1.5           # m
+      distance_deadband: 0.2
+      k_forward: 0.6
+      max_forward: 0.3               # m/s; policy trained up to 0.5
+      max_backward: 0.0              # never back away from a person
+      k_yaw: 1.2
+      yaw_deadband: 0.05
+      max_yaw_rate: 0.4
+      walk_bearing: 0.6
+      max_linear_accel: 0.4
+      max_yaw_accel: 1.0
+      smoothing: 0.4
+      hold_time: 0.6                 # s; detection runs at ~7 Hz
+      search_yaw_rate: 0.0           # > 0 turns toward where the person was last seen
+      search_after: 1.0
