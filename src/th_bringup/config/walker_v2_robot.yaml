@@ -12,6 +12,8 @@
 # VERIFY:
 #   direction - tools/walker/wiggle_test.py; +joint must move the foot as the URDF says
 #               (pitch +: foot moves back; hip roll +: foot moves +y/left).
+#               All ten were checked 2026-11-18 with the motors off: each joint turned by hand
+#               and the change in mechPos read with tools/walker/sysid/monitor.py --once.
 #   limits    - URDF limits; hip roll is narrowed on the inside (foot collision at ~17 deg).
 
 # mit: motors run PD with the policy_spec kp/kd (what training assumed).
@@ -63,7 +65,7 @@ motors:
     motor_id: 11  # UUID 3f39300290613713
     motor_model: RS03
     can_interface: can_left
-    direction: 1.0
+    direction: -1.0  # hand-turned check 2026-11-18
     offset: null
     lower: -0.7854
     upper: 0.7854
@@ -71,7 +73,7 @@ motors:
     motor_id: 12  # UUID 484193c79c90b014
     motor_model: RS03
     can_interface: can_left
-    direction: 1.0
+    direction: -1.0  # hand-turned check 2026-11-18
     offset: null
     lower: -0.35
     upper: 0.7854
@@ -87,7 +89,7 @@ motors:
     motor_id: 14  # UUID 8c8938000c333413
     motor_model: RS03
     can_interface: can_left
-    direction: 1.0
+    direction: -1.0  # hand-turned check 2026-11-18
     offset: null
     lower: 0.0
     upper: 2.0944
@@ -115,7 +117,7 @@ motors:
     motor_id: 22  # UUID 9e8d93c79c90b014
     motor_model: RS03
     can_interface: can_right
-    direction: 1.0
+    direction: -1.0  # hand-turned check 2026-11-18
     offset: null
     lower: -0.7854
     upper: 0.35
@@ -139,7 +141,7 @@ motors:
     motor_id: 25  # UUID 6e453b4e2071300b
     motor_model: RS06
     can_interface: can_right
-    direction: 1.0
+    direction: -1.0  # hand-turned check 2026-11-18
     offset: null
     lower: -1.5708
     upper: 1.5708

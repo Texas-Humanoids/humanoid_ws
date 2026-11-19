@@ -4,7 +4,7 @@
 # (see th_bringup README). Read before 10-can-usb.link, which names any other CANable can_usb.
 [Match]
 Driver=gs_usb
-Property=ID_SERIAL_SHORT=002C00485741570920393033
+Property=ID_SERIAL_SHORT=002D00165741570220393033
 
 [Link]
 Name=can_left
