@@ -12,7 +12,7 @@ applies the kp/kd we send. One motor at a time, with **nothing attached to the o
 | `spin.py` | Jetson | One motor at a constant velocity: `spin.py 11 2 +` |
 | `mit_all.py` | Jetson | Every motor at once in MIT mode: hold, sine, spin, home |
 | `monitor.py` | Jetson | Live table of everything the drives report; never moves anything |
-| `test_sysid.py` | both | Protocol vectors (same as the C++ tests), every test against a simulated motor, the abort paths, and fit recovery of known parameters |
+| `test_sysid.py` | both | Protocol vectors (same as the C++ tests), every test against a simulated motor (with a simulated scale for `stall`), the abort paths, and fit recovery of known parameters |
 
 ## Bench setup
 
@@ -63,6 +63,50 @@ for example with the room temperature.
   - Run it as `sudo chrt -f 50 python3 ...`.
   - Or lower `--rate`.
   - Or check the bus with `canbusload can_usb@1000000`.
+
+## Locked-output torque (`stall`, `stall-hold`)
+
+The chirp tests can't tell whether the drive delivers the torque it's told to: with a free output,
+a torque error ends up inside the fitted inertia. On the robot, gravity loads are real torques, so it
+matters. These two tests measure true output torque with a rod pressing on a scale. **They need the
+opposite setup from `all`**, so they are never part of it.
+
+**Rig**
+- Housing clamped as usual. A **stiff** rod or bar bolted to the output.
+- The rod rests on a scale. Measure L from the **motor axis** to the **contact point** (a bolt head
+  or knife edge makes the point well defined). The rod should be level at contact.
+- Choose L so the top step fits the scale: reading = torque / (9.81 × L) kg. RS03 at 60 Nm with
+  L = 0.15 m is 41 kg, a bathroom scale. RS02 at 12 Nm with L = 0.3 m is 4 kg, a kitchen scale. The
+  script prints the expected maximum before it asks to run.
+- **Tare the scale with the rod resting on it and the motor off**, so the rod's weight drops out.
+- `--dir` is the direction that presses the rod **down**. If it's wrong, the rod lifts and the first
+  (small) step aborts.
+- Nobody in the rod's swing. Start with the default `--stall-max` (the test cap) before going to peak.
+
+```bash
+python3 tools/walker/sysid/chirp.py --id 21 stall --arm 0.15 --dir +                  # 8 steps to 12 Nm and back
+python3 tools/walker/sysid/chirp.py --id 21 stall --arm 0.15 --dir + --stall-max 58   # up to peak
+python3 tools/walker/sysid/chirp.py --id 21 stall-hold --arm 0.15 --dir + --stall-max 20 --duration 180
+```
+
+| Test | Command to the motor | Gives |
+|---|---|---|
+| `stall` | kp 0, feed-forward torque in `--levels` steps up to `--stall-max` and back down. Each step is held until you **type the scale reading + Enter** (Enter alone skips, `q` stops, `--max-hold` 15 s then moves on) | torque gain k, saturation, friction band, torque constant Kt |
+| `stall-hold` | one torque held for `--duration` s; type a reading about every `--prompt-every` s | heating rate, torque drop when warm |
+
+- **What prints at each reading:** commanded torque, scale → true torque and the ratio, the drive's
+  own estimate, q-axis current (read at 20 Hz) and temperature. Readings go into `meta.json`
+  (`readings`), with the current in `iq.csv`.
+- **Units:** `--scale-unit kg|g|lb|N`. If L was mis-measured, fix `profile.arm` in `meta.json`. fit.py
+  recomputes from the raw readings.
+- **Torque limit:** the drive's limit is set to 1.1 × `--stall-max` (capped at peak), so it never
+  clips a step.
+- **If the rod slips off:** the output turning faster than 1.5 rad/s, or more than `--stall-travel`
+  (0.05 rad) from the start, aborts. The drive then brakes with the v6 kd (RS03 3, RS02 1, RS06 1.5),
+  not the gentle idle damping. In simulation, a slip at full RS03 peak stops within 0.08 rad.
+- **What to do with the result:** k is the centre of `strength_range` in `walker_v2_cfg.py`, and the
+  armature becomes `J_true_torque` (J × k). The peak where the top step saturates is
+  `saturation_effort`.
 
 ## Spin one motor by hand (`spin.py`)
 
@@ -166,14 +210,20 @@ The inertia comes out in units of *commanded* torque. If the drive's torque cons
   sim vs real. **Pass = within 1 dB and 10° up to 10 Hz.**
 - **pos-chirp / step refit:** kp and kd scale factors. 1.0 means the drive applies the gains we send.
 - **top-speed:** the plateau speed at the measured bus voltage.
+- **stall:** the torque gain k (true / commanded torque), whether the top step saturates, the
+  friction band, the torque constant Kt, and the drive estimate's error. With a torque-chirp run of
+  the same motor it also prints `J_true_torque` = J × k.
+- **stall-hold:** heating rate (°C/min over the first minute), minutes to the temperature limit at
+  that rate, and how much the true torque dropped as the motor warmed.
 - **Per-model summary:** mean and min..max across units, plus a ready `MOTORS` line for the mjlab
-  config. Use the spread for domain randomization ranges.
+  config, and a suggested `strength_range` once stall runs are in. Use the spread for domain
+  randomization ranges.
 
 **Limits:**
 - **Delay:** what's measured is the CAN round trip only, the delay the host sees. The ROS pipeline
   adds its own on the robot.
-- **Torque:** true output torque, the torque constant and thermal limits need a locked output with
-  a load cell.
+- **Torque under motion:** `stall` measures torque at zero speed. The torque-speed line (how torque
+  falls with speed at 36 V) would need a second motor as a dynamometer.
 - **Isaac Lab friction:** PhysX joint friction is a coefficient, not a torque. Check how the
   actuator config uses it before plugging in `Fc`.
 

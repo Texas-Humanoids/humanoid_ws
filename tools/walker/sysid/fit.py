@@ -15,6 +15,12 @@ What each run gives:
                   kp/kd scale factors (1.0 = the drive applies the gains we send)
     step          validation in the time domain
     top-speed     no-load speed at the bus voltage
+    stall         locked output, rod on a scale: true / commanded torque (the torque gain k),
+                  where the torque saturates, the friction band (up vs down steps), the torque
+                  constant Kt (torque / iq), and how far the drive's own torque estimate is off.
+                  Sim applies commanded torque, so k is the centre of motor-strength randomisation,
+                  and the output-side inertia is J * k
+    stall-hold    constant locked torque: heating rate and whether the torque drops as it warms
 
   python3 tools/walker/sysid/fit.py sysid_logs/*_m14_* --plots plots/ --out m14.yaml
   python3 tools/walker/sysid/fit.py sysid_logs/* --out actuators.yaml    # all motors + per-model summary
@@ -394,6 +400,127 @@ def analyze_top_speed(run, out):
     out.update(top_speed=min(speeds), top_speed_vbus=vbus, top_speed_saturated_command=sat)
 
 
+SCALE_N = {'kg': 9.80665, 'g': 0.00980665, 'lb': 4.4482216, 'N': 1.0}   # same as chirp.SCALE_UNITS
+
+
+def stall_points(run):
+    """Readings of a stall / stall-hold run -> dict of arrays. True torque is recomputed from the raw
+    scale reading and the arm in meta.json, so a corrected arm length there takes effect."""
+    rd = run.meta.get('readings') or []
+    if not rd:
+        return None
+    arm = float(run.meta['profile']['arm'])
+    col = (lambda k: np.array([float(r[k]) if r.get(k) is not None else np.nan for r in rd]))
+    unit = rd[0]['unit']
+    return dict(t=col('t'), cmd=col('tau_cmd'), true=col('reading') * SCALE_N[unit] * arm,
+                drive=col('tau_drive'), iq=col('iq'), temp=col('temp'),
+                up=np.array([r['leg'] != 'down' for r in rd]), arm=arm)
+
+
+def through_origin(x, y):
+    m = np.isfinite(x) & np.isfinite(y) & (np.abs(x) > 1e-9)
+    return float(x[m] @ y[m] / (x[m] @ x[m])) if m.sum() >= 2 else float('nan')
+
+
+def analyze_stall(run, out, plots):
+    p = stall_points(run)
+    if p is None or len(p['cmd']) < 3:
+        print('  stall: fewer than 3 scale readings, nothing to fit')
+        return
+    cmd, true = p['cmd'], p['true']
+    (k, c), *_ = np.linalg.lstsq(np.stack([cmd, np.ones_like(cmd)], 1), true, rcond=None)
+    # The linear part (lower 70 % of the steps), then how far the top steps fall below it.
+    lin = cmd <= 0.7 * cmd.max() + 1e-9
+    k_lin, c_lin = (np.linalg.lstsq(np.stack([cmd[lin], np.ones(lin.sum())], 1), true[lin], rcond=None)[0]
+                    if lin.sum() >= 2 else (k, c))
+    top = cmd >= cmd.max() - 1e-9
+    top_ratio = float(np.mean(true[top] / (k_lin * cmd[top] + c_lin)))
+    # Friction band: at the same command, the down step reads higher than the up step, because the
+    # gearbox's static friction first resists compressing the scale and then resists releasing it.
+    band = []
+    for lvl in np.unique(cmd):
+        u, d = true[(cmd == lvl) & p['up']], true[(cmd == lvl) & ~p['up']]
+        if len(u) and len(d):
+            band.append((float(np.mean(d)) - float(np.mean(u))) / 2.0)
+    kt = through_origin(p['iq'], true)
+    est = through_origin(true, p['drive'])
+    res = dict(torque_gain=float(k), torque_offset=float(c), torque_gain_linear=float(k_lin),
+               top_step=float(cmd.max()), top_step_vs_linear=top_ratio,
+               friction_band=float(np.mean(band)) if band else None, Kt=kt,
+               drive_estimate_ratio=est, arm=p['arm'], n=int(len(cmd)),
+               points=[dict(cmd=float(a), true=float(b), drive=float(d), iq=float(i), up=bool(u))
+                       for a, b, d, i, u in zip(cmd, true, p['drive'], p['iq'], p['up'])])
+    out['stall'] = res
+    out['torque_gain'], out['Kt'] = res['torque_gain'], kt
+    print(f'  stall: true torque = {k:.3f} x commanded {c:+.3f} Nm  ({len(cmd)} readings up to '
+          f'{cmd.max():g} Nm, arm {p["arm"]:g} m)')
+    print(f'  stall: top step {cmd.max():g} Nm gives {100 * top_ratio:.0f}% of the linear prediction'
+          + ('  -> SATURATING: the drive no longer adds torque here' if top_ratio < 0.95 else ''))
+    if band:
+        print(f'  stall: friction band {np.mean(band):+.3f} Nm (half the down-minus-up gap at the same '
+              f'command; about the static friction at the output, ~0 means none)')
+    if np.isfinite(kt):
+        print(f'  stall: torque constant {kt:.3f} Nm/A at the output (true torque / iq)')
+    if np.isfinite(est):
+        print(f'  stall: drive torque estimate / true torque = {est:.3f}'
+              + ('' if abs(est - 1) < 0.05 else '  (status-frame torque is off: log iq, not tau, for torque)'))
+    if plots:
+        import matplotlib.pyplot as plt
+        fig, ax = plt.subplots(figsize=(6, 4.5))
+        ax.plot(cmd[p['up']], true[p['up']], 'o', label='scale, stepping up')
+        ax.plot(cmd[~p['up']], true[~p['up']], 's', mfc='none', label='scale, stepping down')
+        ax.plot(cmd, p['drive'], 'x', label='drive estimate')
+        xx = np.linspace(0, cmd.max(), 50)
+        ax.plot(xx, xx, 'k:', lw=1, label='1:1')
+        ax.plot(xx, k * xx + c, 'k-', lw=1, label=f'fit {k:.3f}x {c:+.2f}')
+        ax.set(xlabel='commanded torque (Nm)', ylabel='torque (Nm)', title=run.name)
+        ax.grid(alpha=.3)
+        ax.legend()
+        save(fig, plots, run.name)
+
+
+def analyze_stall_hold(run, out, plots):
+    fb = run.fb
+    hold = run.meta['profile']['hold_seconds']
+    ramp = run.meta['profile']['ramp']
+    m = (fb[:, 0] >= ramp) & (fb[:, 0] <= ramp + hold)
+    if m.sum() < 100:
+        print('  stall-hold: too little data in the hold')
+        return
+    t, temp, drive = fb[m, 0] - ramp, fb[m, 4], np.abs(fb[m, 3])
+    first = t <= min(60.0, t[-1])
+    rate = float(np.polyfit(t[first], temp[first], 1)[0] * 60.0) if first.sum() > 10 else float('nan')
+    res = dict(torque=float(run.meta['profile']['levels'][0]), seconds=float(t[-1]),
+               temp_start=float(temp[0]), temp_end=float(temp[-1]), heating_c_per_min=rate,
+               drive_estimate_start=float(np.mean(drive[:50])), drive_estimate_end=float(np.mean(drive[-50:])))
+    limit = run.meta.get('max_temp', 70.0)
+    if rate > 0.05:   # below this the 0.1 C temperature steps are all there is
+        res['minutes_to_limit_at_start_rate'] = float((limit - temp[-1]) / rate)
+    p = stall_points(run)
+    if p is not None and len(p['true']) >= 2:
+        res['true_torque_start'], res['true_torque_end'] = float(p['true'][0]), float(p['true'][-1])
+        res['true_torque_drop'] = float(1 - p['true'][-1] / p['true'][0])
+    out.setdefault('stall_hold', []).append(res)
+    print(f'  stall-hold {res["torque"]:g} Nm for {res["seconds"]:.0f} s: {res["temp_start"]:.1f} -> '
+          f'{res["temp_end"]:.1f} C, {rate:.2f} C/min over the first minute'
+          + (f', ~{res["minutes_to_limit_at_start_rate"]:.1f} more min to {limit:g} C at that rate'
+             if 'minutes_to_limit_at_start_rate' in res else ''))
+    if 'true_torque_drop' in res:
+        print(f'  stall-hold: true torque {res["true_torque_start"]:.2f} -> {res["true_torque_end"]:.2f} Nm '
+              f'({100 * res["true_torque_drop"]:+.1f}% drop as it warmed)')
+    if plots:
+        import matplotlib.pyplot as plt
+        fig, ax = plt.subplots(figsize=(7, 3.5))
+        ax.plot(t, temp, label='temperature (C)')
+        ax.set(xlabel='t (s)', ylabel='C', title=run.name)
+        if p is not None and len(p['true']):
+            ax2 = ax.twinx()
+            ax2.plot(p['t'] - ramp, p['true'], 'o', color='C1', label='true torque (Nm)')
+            ax2.set(ylabel='Nm')
+        ax.grid(alpha=.3)
+        save(fig, plots, run.name)
+
+
 # ============================================================================= plots
 def save(fig, plots, name):
     os.makedirs(plots, exist_ok=True)
@@ -430,7 +557,8 @@ def plot_run(run, ws, Q, f, meas, sim, label, plots):
 
 
 # ============================================================================= driver
-ORDER = {'friction': 0, 'top-speed': 1, 'torque-chirp': 2, 'pos-chirp': 3, 'step': 4}
+ORDER = {'friction': 0, 'top-speed': 1, 'torque-chirp': 2, 'pos-chirp': 3, 'step': 4, 'stall': 5,
+         'stall-hold': 6}
 
 
 def analyze_motor(mid, runs, plots):
@@ -452,7 +580,16 @@ def analyze_motor(mid, runs, plots):
             analyze_top_speed(r, out)
         elif r.test == 'torque-chirp':
             params = analyze_torque_chirp(r, prior, out, plots)
-    if params is None and runs:
+        elif r.test == 'stall':
+            analyze_stall(r, out, plots)
+        elif r.test == 'stall-hold':
+            analyze_stall_hold(r, out, plots)
+    if 'J' in out and 'torque_gain' in out:
+        # J came out in commanded-torque units; in true torque it is J * k.
+        out['J_true_torque'] = out['J'] * out['torque_gain']
+        print(f'  inertia in true-torque units: J {out["J"]:.5f} x k {out["torque_gain"]:.3f} = '
+              f'{out["J_true_torque"]:.5f} (use this with motor strength = k in sim)')
+    if params is None and runs and not all(r.test.startswith('stall') for r in runs):
         if any(r.test.startswith(('pos-chirp', 'step')) for r in runs):
             print('  no torque-chirp run: validating with training\'s datasheet values instead')
         params = dict(J=J_GUESS[model], b=prior.get('b', 0.0), Fc=prior.get('Fc', 0.0), delay=0.0)
@@ -472,7 +609,7 @@ def summarize(results):
     print('\n=== per-model summary (feed into training; ranges = unit-to-unit spread) ===')
     for model, rs_ in sorted(by_model.items()):
         s = {}
-        for k in ('J', 'Fc', 'b', 'delay', 'top_speed'):
+        for k in ('J', 'Fc', 'b', 'delay', 'top_speed', 'torque_gain', 'Kt', 'J_true_torque'):
             xs = [r[k] for r in rs_ if k in r and r[k] is not None and np.isfinite(r[k])]
             if xs:
                 s[k] = dict(mean=float(np.mean(xs)), min=float(np.min(xs)), max=float(np.max(xs)), n=len(xs))
@@ -485,6 +622,11 @@ def summarize(results):
                   f'{s.get("Fc", {}).get("mean", float("nan")):.3f}'
                   + (f', no_load_speed (at {rs_[0]["vbus"]:.0f} V) = {s["top_speed"]["mean"]:.1f}'
                      if 'top_speed' in s else ''))
+        if 'torque_gain' in s:
+            g = s['torque_gain']
+            print(f'    motor strength (true / commanded torque): {g["mean"]:.3f} [{g["min"]:.3f}..{g["max"]:.3f}]'
+                  f' -> DelayedDCMotorCfg strength_range centred here, e.g. ({0.9 * g["min"]:.2f}, '
+                  f'{1.1 * g["max"]:.2f})')
         if 'delay' in s:
             print(f'    host-observed delay {s["delay"]["mean"] * 1e3:.1f} ms = '
                   f'{s["delay"]["mean"] / 0.005:.1f} physics steps of 5 ms (CAN round trip only; '

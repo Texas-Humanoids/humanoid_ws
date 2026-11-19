@@ -262,6 +262,113 @@ class Aborts(unittest.TestCase):
 
 
 SIM_T0 = chirp.SimClock().t
+STALL = ['--arm', '0.15', '--dir', '+', '--levels', '4']
+
+
+class FakeReader:
+    """Scripted operator: answers[i] are the lines typed during hold number i."""
+
+    def __init__(self, answers):
+        self.answers, self.holds = list(answers), -1
+
+    def poll(self, prof, t):
+        if not prof.waiting():
+            return []
+        if prof.i != self.holds and t - prof.t_phase > 0.5:
+            self.holds = prof.i
+            return self.answers.pop(0) if self.answers else []
+        return []
+
+
+def drive(prof, until=200.0, dt=0.002):
+    t = 0.0
+    while not prof.done and t < until:
+        prof.tick(t)
+        t += dt
+    return t
+
+
+class Stall(unittest.TestCase):
+    def test_steps_up_and_back_down_reading_every_step(self):
+        code, runs, metas, motors = sim_run('stall', *STALL, motor_id=21)
+        self.assertEqual(code, 0)
+        meta, m = metas[0], motors[0]
+        self.assertEqual([r['tau_cmd'] for r in meta['readings']], [3, 6, 9, 12, 9, 6, 3])
+        self.assertEqual([r['leg'] for r in meta['readings']], ['up'] * 4 + ['down'] * 3)
+        for r in meta['readings']:                       # perfect drive: scale torque = command
+            self.assertAlmostEqual(r['tau_true'] / r['tau_cmd'], 1.0, delta=0.02)
+        run = [c for c in m.commands if abs(c[4]) > 0.05]
+        self.assertTrue(all(c[2] == 0.0 for c in m.commands))             # never a position gain
+        self.assertTrue(all(c[4] > 0 for c in run))                       # always pressing +
+        self.assertAlmostEqual(max(c[4] for c in run), 12.0, delta=0.01)
+        self.assertAlmostEqual(m.torque_limit, 13.2, places=3)            # 1.1 x --stall-max
+        self.assertFalse(m.enabled)
+        self.assertTrue(os.path.exists(os.path.join(runs[0], 'iq.csv')))
+        self.assertGreater(min(r['iq'] for r in meta['readings']), 0.0)
+
+    def test_minus_direction_presses_negative(self):
+        code, _, metas, motors = sim_run('stall', '--arm', '0.15', '--dir', '-', '--levels', '2', motor_id=21)
+        self.assertEqual(code, 0)
+        self.assertTrue(all(c[4] < 0.01 for c in motors[0].commands))
+        self.assertEqual(len(metas[0]['readings']), 3)
+
+    def test_rod_slipping_off_the_scale_aborts(self):
+        code, _, metas, motors = sim_run('stall', *STALL, motor_id=21,
+                                         hook=lambda m: setattr(m, 'wall_off_at', SIM_T0 + 4.0))
+        self.assertEqual(code, 2)
+        self.assertIn('rod slipped', metas[0]['aborted'])
+        self.assertFalse(motors[0].enabled)
+        self.assertIn(rs.T_STOP, motors[0].received[-3:])
+        self.assertIn('rad/s', metas[0]['aborted'])                       # the speed check caught it
+        self.assertLess(abs(motors[0].q - metas[0]['q_start']), 0.2)     # braked within ~10 degrees
+
+    def test_pressing_the_wrong_way_aborts_on_the_first_step(self):
+        def wrong_side(m):
+            m.wall_q, m.wall_dir, m.wall_k = m.q, -1.0, 2000.0
+        code, _, metas, _ = sim_run('stall', *STALL, motor_id=21, hook=wrong_side)
+        self.assertEqual(code, 2)
+        self.assertIn('rod slipped', metas[0]['aborted'])
+        self.assertEqual(metas[0]['readings'], [])
+
+    def test_hold_takes_readings_for_the_duration(self):
+        code, _, metas, _ = sim_run('stall-hold', '--arm', '0.2', '--dir', '+', '--duration', '20',
+                                    '--prompt-every', '5', '--stall-max', '10', motor_id=21)
+        self.assertEqual(code, 0)
+        self.assertEqual(len(metas[0]['readings']), 3)                    # at 5, 10, 15 s
+        self.assertTrue(all(r['tau_cmd'] == 10.0 for r in metas[0]['readings']))
+
+    def test_args(self):
+        with self.assertRaises(SystemExit):
+            chirp.parse_args(['stall', '--id', '21', '--dir', '+'])                      # no arm
+        with self.assertRaises(SystemExit):
+            chirp.parse_args(['stall', '--id', '21', '--arm', '0.15'])                   # no dir
+        with self.assertRaises(SystemExit):
+            chirp.parse_args(['stall', '--id', '13', *STALL[:4], '--stall-max', '20'])   # RS02 peak 17
+        with self.assertRaises(SystemExit):
+            chirp.parse_args(['stall', '--id', '21', *STALL[:4], '--stall-max', '30', '--torque-limit', '20'])
+        a = chirp.parse_args(['stall', '--id', '21', *STALL[:4], '--stall-max', '58'])
+        self.assertEqual(a.torque_limit, 60.0)                                           # capped at peak
+        self.assertNotIn('stall', chirp.ALL_SEQUENCE)                                     # opposite setup
+
+    def test_operator_can_skip_stop_and_mistype(self):
+        a = chirp.parse_args(['stall', '--id', '21', *STALL])
+        prof = chirp.build_profile('stall', 'RS03', a)
+        log = {'fb': []}
+        prof.attach(FakeReader([['2.0'], ['oops', '4.1'], ['\n'], ['q']]), log, None)
+        drive(prof)
+        self.assertTrue(prof.done)
+        self.assertEqual([(r['tau_cmd'], r['reading']) for r in log['readings']], [(3, 2.0), (6, 4.1)])
+        self.assertLess(prof.i, len(prof.levels) - 1)      # stopped before the last step
+
+    def test_no_reading_moves_on_after_max_hold(self):
+        a = chirp.parse_args(['stall', '--id', '21', *STALL, '--max-hold', '2'])
+        prof = chirp.build_profile('stall', 'RS03', a)
+        log = {'fb': []}
+        prof.attach(FakeReader([]), log, None)
+        t = drive(prof)
+        self.assertTrue(prof.done)
+        self.assertEqual(log['readings'], [])
+        self.assertLess(t, 7 * (2 + 0.3) + 1)
 
 
 def mit_all_run(*args, hook=None):
@@ -407,6 +514,32 @@ class FitRecovery(unittest.TestCase):
         self.assertLess(v['bode_err_to_10Hz']['gain_db'], 1.0)
         self.assertLess(v['bode_err_to_10Hz']['phase_deg'], 10.0)
         self.assertAlmostEqual(v['refit']['kp_scale'], 1.0, delta=0.06)
+
+
+@unittest.skipUnless(HAVE_FIT, 'fit.py needs numpy + scipy')
+class StallFit(unittest.TestCase):
+    """A drive that gives 1.1x the commanded torque, Kt 2.0 Nm/A: the stall fit gets both back, and
+    turns the torque chirp's commanded-torque inertia (J / 1.1) back into the true one."""
+
+    @classmethod
+    def setUpClass(cls):
+        truth = ['--sim-params', TRUTH + ',tau_gain=1.1,kt=2.0']
+        _, st, _, _ = sim_run('stall', '--arm', '0.15', '--dir', '+', '--levels', '5', *truth, motor_id=21)
+        _, tc, _, _ = sim_run('torque-chirp', '--duration', '12', *truth, motor_id=21)
+        out = os.path.join(tempfile.mkdtemp(), 'r.json')
+        fit.main([*st, *tc, '--out', out])
+        with open(out) as f:
+            cls.res = json.load(f)['motors'][0]
+
+    def test_torque_gain_and_constant(self):
+        self.assertAlmostEqual(self.res['torque_gain'], 1.1, delta=0.02)
+        self.assertAlmostEqual(self.res['Kt'], 2.0, delta=0.04)
+        self.assertAlmostEqual(self.res['stall']['drive_estimate_ratio'], 1 / 1.1, delta=0.02)
+        self.assertGreater(self.res['stall']['top_step_vs_linear'], 0.97)   # no saturation at 12 Nm
+
+    def test_inertia_in_true_torque_units(self):
+        self.assertAlmostEqual(self.res['J'], 0.07 / 1.1, delta=0.0035)       # commanded units
+        self.assertAlmostEqual(self.res['J_true_torque'], 0.07, delta=0.004)
 
 
 if __name__ == '__main__':
