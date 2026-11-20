@@ -107,7 +107,7 @@ def test_does_not_enable_unless_walking(h):
     assert h.state() == 'DISABLED'
 
 
-def test_follows_tag_and_stops_on_b(h):
+def test_follows_tag_and_stops_on_back(h):
     h.mode.publish(String(data='WALK'))
     h.spin(0.3)
     h.press('Y')
@@ -120,7 +120,7 @@ def test_follows_tag_and_stops_on_b(h):
     assert max(c.linear.x for c in h.cmds) <= 0.4 + 1e-9
     target = [m for a in h.markers for m in a.markers if m.id == 0][-1]  # the tag in 3D
     assert target.pose.position.x > 1.0 and target.pose.position.y > 0.0  # ahead, to the left
-    h.press('B')
+    h.press('BACK')
     assert h.spin(1.0, lambda: h.state() == 'DISABLED')
     count = len(h.cmds)
     h.spin(0.3)

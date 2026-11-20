@@ -23,7 +23,8 @@ def launch_follower(context):
     if arg('camera_url'):
         actions.append(Node(
             package='th_foxglove', executable='mjpeg_camera', name='mjpeg_camera',
-            parameters=[{'url': arg('camera_url'), 'rotation': 180}], output='screen'))
+            parameters=[{'url': arg('camera_url'), 'rotation': int(arg('camera_rotation'))}],
+            output='screen'))
     actions.append(Node(
         package='th_autonomy', executable=f'{target}_follower', name=f'{target}_follower',
         parameters=[config], output='screen'))
@@ -40,5 +41,10 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'camera_url', default_value='',
             description="Start an MJPEG relay for this URL; '' = use an existing /camera/image/compressed"),
+        DeclareLaunchArgument(
+            'camera_rotation', default_value='180',
+            description='Degrees clockwise the relay turns frames (walker camera is mounted upside '
+                        'down). The relay rotates for every subscriber, so the follower configs keep '
+                        'camera.rotation 0'),
         OpaqueFunction(function=launch_follower),
     ])

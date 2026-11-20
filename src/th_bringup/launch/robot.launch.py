@@ -188,8 +188,9 @@ def launch_pipeline(context):
         bridge_extra['walk_event'] = arg('walk_event')
     # Every listed button disarms (BACK is the small View button on an Xbox pad; B is easier
     # to hit in a hurry).
-    bridge_extra['disarm_events'] = [
-        b.strip() + ' pressed' for b in arg('disarm_buttons').split(',') if b.strip()]
+    # B always disarms (the team's kill button), whatever disarm_buttons lists.
+    buttons = [b.strip() for b in arg('disarm_buttons').split(',') if b.strip()]
+    bridge_extra['disarm_events'] = [b + ' pressed' for b in dict.fromkeys(['B', *buttons])]
     if control_mode == 'mit' and motors:
         # The bridge switches each motor between its trained gains (WALK) and optional
         # stiffer stand_kp/stand_kd from the robot yaml (STAND).
@@ -411,7 +412,7 @@ def generate_launch_description():
             description="Two-step arming: START stands, this event (e.g. 'A pressed') walks"),
         DeclareLaunchArgument(
             'disarm_buttons', default_value='BACK,B',
-            description='Comma-separated gamepad buttons that disarm (damp every motor)'),
+            description='Comma-separated gamepad buttons that disarm (damp every motor); B always does'),
         DeclareLaunchArgument(
             'record_topics', default_value='',
             description='Regex of topics to record with record:=true (empty = the full default set); e.g. tools/walker/bringup/ros.sh passes a lean set (policy, joints, IMU, motor torque/status)'),

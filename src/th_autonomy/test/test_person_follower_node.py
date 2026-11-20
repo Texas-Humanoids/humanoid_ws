@@ -43,14 +43,14 @@ def test_empty_room_stays_put(h):
     assert h.spin(2.0, lambda: h.state() == 'LOST')
     h.spin(1.0)
     assert h.cmds and all(c.linear.x == 0.0 and c.angular.z == 0.0 for c in h.cmds)
-    h.press('B')
+    h.press('BACK')
     assert h.spin(1.0, lambda: h.state() == 'DISABLED')
 
 
-def test_b_releases_the_claim(h):
+def test_back_releases_the_claim(h):
     ok, jpeg = cv2.imencode('.jpg', np.full((720, 1280, 3), 128, np.uint8))
     h.frame = jpeg.tobytes()
     h.follower.claim.track_id = 7  # as if someone had claimed the robot
     h.follower.claim.last_seen = h.follower.now()
-    h.press('B')
+    h.press('BACK')
     assert h.spin(2.0, lambda: h.follower.claim.track_id is None)

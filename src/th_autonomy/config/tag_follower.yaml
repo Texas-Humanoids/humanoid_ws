@@ -6,7 +6,7 @@ tag_follower:
     button_topic: /gamepad/button_event
     joy_topic: /joy
     toggle_event: Y pressed          # toggles following (only turns on in WALK)
-    stop_events: [B pressed, BACK pressed]
+    stop_events: [BACK pressed]   # B is not a follow control: it only disarms the bridge
     override_button: 9               # LB: while held, the gamepad drives
     require_walk: true
     rate: 20.0                       # Hz, /cmd_vel while following
@@ -29,7 +29,7 @@ tag_follower:
       # Otherwise a pinhole guess from the horizontal field of view. Bearing is
       # close either way; distance scales with this, so check it with a tape measure.
       hfov_deg: 90.0
-      rotation: 180                  # 2026-11-19: camera mounted upside down. degrees clockwise to turn frames upright; 180 = mounted upside down
+      rotation: 0                    # extra turn here; 0 when the mjpeg_camera relay already turns frames upright (camera_rotation, default 180)
       # Where it sits on the robot, for the 3D view: on the chest above the logo (a guess;
       # measure once mounted). Relative to base_link: x forward, y left, z up (m), and
       # roll, pitch, yaw (rad; pitch > 0 tilts it down).

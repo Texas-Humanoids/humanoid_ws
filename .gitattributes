@@ -1,2 +1,9 @@
 # Collapse lockfiles in GitHub diffs
 training/uv.lock linguist-generated=true
+# Generated outputs: collapsed in GitHub diffs (eval sweeps, exports, layouts, CAD build reports)
+policies/**/isaac_sweep.json linguist-generated=true
+policies/**/sim2sim_sweep.json linguist-generated=true
+policies/**/used_ranges.json linguist-generated=true
+policies/**/policy_spec.json linguist-generated=true
+src/th_foxglove/layouts/*.json linguist-generated=true
+src/th_description/robots/*/build_report.json linguist-generated=true
