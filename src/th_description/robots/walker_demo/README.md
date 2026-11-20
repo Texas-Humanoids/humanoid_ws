@@ -13,7 +13,7 @@ Everything here is generated. Don't edit it by hand; rerun the builder:
 | `urdf/walker_demo.urdf` | cleaned URDF: 11 bodies, x forward, box collisions, real effort/velocity |
 | `mjcf/walker_demo.xml` | MuJoCo model (same body/joint/geom/site names as walker_v2.xml), measured armature + friction |
 | `mjcf/scene.xml` | floor + `gantry` weld (off) |
-| `meshes/` | one merged visual mesh per body (full resolution, 28 MB) |
+| `meshes/` | one merged visual mesh per body (full resolution, 28 MB). Two extra base visuals in burnt orange, added by hand after the build: `base_horns.stl` and `base_logo.stl` (the Longhorn engraved 3.5 mm into the front plate, cut out of `base_link.stl`). A rebuild drops them |
 | `build_report.json` | masses per body (raw and symmetrized), boxes, joint signs, warnings |
 
 ## What was wrong with the raw export, and what the builder does about it
