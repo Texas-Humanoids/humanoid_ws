@@ -1,0 +1,2 @@
+model_2999.pt
+/c/Users/karti/mjlab_runs/logs/rsl_rl/walker_demo_cad/2026-11-17_19-27-05_v1

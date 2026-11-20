@@ -36,6 +36,18 @@ def motor_namespace(joint):
     return '/' + joint.removesuffix('_joint')
 
 
+# What foxglove_bridge may offer: the topics the layouts use. It only subscribes to what a
+# client opens, but a whitelist keeps anyone from streaming the 100 Hz per-motor topics (or a
+# camera that is not in the layout) by accident. Regexes; override with topic_whitelist:=a,b.
+TOPIC_WHITELIST = [
+    '^/tf$', '^/tf_static$', '^/robot_description$', '^/joint_states$',
+    '^/policy_bridge/(mode|stand_lean|projected_gravity)$', '^/policy/joint_targets$',
+    '^/robot/.*', '^/dashboard/.*', '^/diagnostics$', '^/battery$', '^/rosout$',
+    '^/(left|right)_(hip_pitch|hip_roll|hip_yaw|knee_pitch|ankle_pitch)/motor/actual_torque$',
+    '^/gamepad/button_event$', '^/cmd_vel$', '^/camera/image/compressed$', '^/follower/.*',
+]
+
+
 def launch_dashboard(context):
     def arg(name):
         return LaunchConfiguration(name).perform(context)
@@ -49,9 +61,12 @@ def launch_dashboard(context):
     imu = robot.get('imu') or {}
     battery = robot.get('battery') or {}
 
-    urdf_path = arg('urdf') or os.path.join(
-        get_package_share_directory('th_description'),
-        'robots', 'walker_v2', 'urdf', 'walker_v2.urdf')
+    # urdf:=<path>, else the robot yaml's `urdf:` (relative to th_description's share, e.g.
+    # robots/walker_demo/urdf/walker_demo.urdf), else WalkerV2.
+    share = get_package_share_directory('th_description')
+    urdf_path = arg('urdf') or (
+        os.path.join(share, robot['urdf']) if robot.get('urdf') else
+        os.path.join(share, 'robots', 'walker_v2', 'urdf', 'walker_v2.urdf'))
     with open(urdf_path) as f:
         urdf = package_uris(f.read(), urdf_path)
     # The CAD export's dark grey (0.25) nearly disappears on Foxglove's dark background.
@@ -67,7 +82,10 @@ def launch_dashboard(context):
         'imu_rotation': [float(v) for v in imu.get('rotation', [1.0, 0.0, 0.0, 0.0])],
         'imu_world_frame': imu.get('world_frame', 'enu'),
         'imu_topic': arg('imu_topic'),
+        'pose_rate': float(arg('pose_rate')),
     }
+    if arg('base_height'):
+        monitor['base_height'] = float(arg('base_height'))
     if motors:  # ROS cannot type an empty list
         monitor['joints'] = [m['joint'] for m in motors]
         monitor['motor_namespaces'] = [motor_namespace(m['joint']) for m in motors]
@@ -78,7 +96,8 @@ def launch_dashboard(context):
     if arg('camera_url'):
         actions.append(Node(
             package='th_foxglove', executable='mjpeg_camera',
-            parameters=[{'url': arg('camera_url'), 'max_rate': float(arg('camera_rate'))}],
+            parameters=[{'url': arg('camera_url'), 'max_rate': float(arg('camera_rate')),
+                         'rotation': int(arg('camera_rotation'))}],
             output='screen'))
 
     try:
@@ -96,6 +115,11 @@ def launch_dashboard(context):
             # Joint states, TF and the camera only need the latest message; a slow Wi-Fi
             # link then drops old ones instead of falling further behind.
             'max_qos_depth': 10,
+            'topic_whitelist': ([t.strip() for t in arg('topic_whitelist').split(',') if t.strip()]
+                                if arg('topic_whitelist') else TOPIC_WHITELIST),
+            # Watching only: no publishing from the app, no service calls.
+            'client_topic_whitelist': ['^$'],
+            'service_whitelist': ['^$'],
         }],
         output='log'))
     return actions
@@ -112,9 +136,20 @@ def generate_launch_description():
         DeclareLaunchArgument('port', default_value='8765', description='foxglove_bridge port'),
         DeclareLaunchArgument('imu_topic', default_value='/imu/data'),
         DeclareLaunchArgument(
+            'base_height', default_value='',
+            description="Base height (m) for the 3D view on hardware; '' = 0.66 (walker_demo 0.661)"),
+        DeclareLaunchArgument(
+            'pose_rate', default_value='20.0', description='robot_monitor TF rate (Hz)'),
+        DeclareLaunchArgument(
+            'topic_whitelist', default_value='',
+            description="Comma-separated regexes foxglove_bridge may offer; '' = the layouts' topics"),
+        DeclareLaunchArgument(
             'camera_url', default_value='',
             description="MJPEG stream to show, e.g. http://localhost:8080/stream; '' = none"),
         DeclareLaunchArgument(
             'camera_rate', default_value='10.0', description='Max camera frames per second'),
+        DeclareLaunchArgument(
+            'camera_rotation', default_value='180',
+            description='Degrees clockwise to turn frames upright (walker camera is mounted upside down)'),
         OpaqueFunction(function=launch_dashboard),
     ])

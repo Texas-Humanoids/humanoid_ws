@@ -218,7 +218,8 @@ def test_summary_clears_stale_voltage_and_partial_current():
         motors=[Motor('left_a', 'left'), Motor('right_a', 'right')],
         voltage=lambda: math.nan, get_clock=lambda: Clock(),
         base_pose=lambda: ((0, 0, 0), (1, 0, 0, 0), 'none'),
-        current_pubs={s: Publisher() for s in ('left', 'right', 'total')})
+        current_pubs={s: Publisher() for s in ('left', 'right', 'total')},
+        poll=lambda group: None)  # sampled inputs: nothing to take here
     for name in ('voltage', 'percent', 'power', 'battery', 'temperature', 'telemetry'):
         setattr(monitor, name + '_pub', Publisher())
     monitor.motors[0].torque.set(3.0)
@@ -231,3 +232,13 @@ def test_summary_clears_stale_voltage_and_partial_current():
     assert math.isnan(monitor.current_pubs['total'].last.data)
     assert math.isnan(monitor.power_pub.last.data)
     assert math.isnan(monitor.battery_pub.last.current)
+
+
+def test_cpu_percent_from_proc_stat():
+    a = t.cpu_times('cpu  100 0 100 800 0 0 0 0 0 0\ncpu0 1 2 3 4\n')
+    b = t.cpu_times('cpu  150 0 150 900 0 0 0 0 0 0\n')
+    assert a == (200, 1000) and b == (300, 1200)
+    assert t.cpu_percent(a, b) == pytest.approx(50.0)
+    assert math.isnan(t.cpu_percent(b, b))
+    with pytest.raises(ValueError):
+        t.cpu_times('intr 1 2 3')

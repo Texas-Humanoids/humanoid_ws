@@ -23,7 +23,7 @@ def launch_follower(context):
     if arg('camera_url'):
         actions.append(Node(
             package='th_foxglove', executable='mjpeg_camera', name='mjpeg_camera',
-            parameters=[{'url': arg('camera_url')}], output='screen'))
+            parameters=[{'url': arg('camera_url'), 'rotation': 180}], output='screen'))
     actions.append(Node(
         package='th_autonomy', executable=f'{target}_follower', name=f'{target}_follower',
         parameters=[config], output='screen'))

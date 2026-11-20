@@ -1,0 +1,526 @@
+{
+ "source": "..\\..\\..\\..\\..\\demo_urdf\\pkg_002\\urdf\\pkg_002.urdf",
+ "warnings": [
+  "hip_roll: left 0.366 kg vs right 0.344 kg in CAD; averaged (SYMMETRIZE)",
+  "knee_pitch: left 2.239 kg vs right 2.124 kg in CAD; averaged (SYMMETRIZE)"
+ ],
+ "joints": {
+  "left_hip_pitch_joint": {
+   "raw": "hip_pitch_l",
+   "kind": "hip_pitch",
+   "sign_vs_raw": -1.0,
+   "pos": [
+    0.0,
+    0.04,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "lower": -0.785398,
+   "upper": 0.785398,
+   "urdf_limits": [
+    -0.785398,
+    0.785398
+   ],
+   "motor": "RS03",
+   "effort": 60.0,
+   "velocity": 16.4,
+   "armature": 0.07,
+   "friction": 0.4,
+   "damping": 0.013
+  },
+  "right_hip_pitch_joint": {
+   "raw": "hip_pitch_r",
+   "kind": "hip_pitch",
+   "sign_vs_raw": 1.0,
+   "pos": [
+    0.0,
+    -0.039999999999999994,
+    0.0
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "lower": -0.785398,
+   "upper": 0.785398,
+   "urdf_limits": [
+    -0.785398,
+    0.785398
+   ],
+   "motor": "RS03",
+   "effort": 60.0,
+   "velocity": 16.4,
+   "armature": 0.07,
+   "friction": 0.4,
+   "damping": 0.013
+  },
+  "left_hip_roll_joint": {
+   "raw": "hip_roll_l",
+   "kind": "hip_roll",
+   "sign_vs_raw": -1.0,
+   "pos": [
+    0.014749999999792124,
+    0.145,
+    7.828089881867228e-08
+   ],
+   "axis": [
+    1.0,
+    0.0,
+    0.0
+   ],
+   "lower": -0.0,
+   "upper": 0.785398,
+   "urdf_limits": [
+    -0.0,
+    0.785398
+   ],
+   "motor": "RS03",
+   "effort": 60.0,
+   "velocity": 16.4,
+   "armature": 0.07,
+   "friction": 0.4,
+   "damping": 0.013
+  },
+  "right_hip_roll_joint": {
+   "raw": "hip_roll_r",
+   "kind": "hip_roll",
+   "sign_vs_raw": -1.0,
+   "pos": [
+    0.014750053071795749,
+    -0.14499999999992952,
+    3.885780586188048e-16
+   ],
+   "axis": [
+    1.0,
+    0.0,
+    0.0
+   ],
+   "lower": -0.785398,
+   "upper": -0.0,
+   "urdf_limits": [
+    -0.785398,
+    -0.0
+   ],
+   "motor": "RS03",
+   "effort": 60.0,
+   "velocity": 16.4,
+   "armature": 0.07,
+   "friction": 0.4,
+   "damping": 0.013
+  },
+  "right_hip_yaw_joint": {
+   "raw": "hip_yaw_r",
+   "kind": "hip_yaw",
+   "sign_vs_raw": 1.0,
+   "pos": [
+    5.3071795846904024e-08,
+    -0.14499999999992946,
+    -0.16499999999999965
+   ],
+   "axis": [
+    0.0,
+    0.0,
+    1.0
+   ],
+   "lower": -0.785398,
+   "upper": 0.785398,
+   "urdf_limits": [
+    -0.785398,
+    0.785398
+   ],
+   "motor": "RS02",
+   "effort": 17.0,
+   "velocity": 33.3,
+   "armature": 0.013,
+   "friction": 0.12,
+   "damping": 0.0009
+  },
+  "left_hip_yaw_joint": {
+   "raw": "hip_yaw_l",
+   "kind": "hip_yaw",
+   "sign_vs_raw": 1.0,
+   "pos": [
+    8.756846317237166e-07,
+    0.14500000000000002,
+    -0.16499999999767623
+   ],
+   "axis": [
+    0.0,
+    0.0,
+    1.0
+   ],
+   "lower": -0.785398,
+   "upper": 0.785398,
+   "urdf_limits": [
+    -0.785398,
+    0.785398
+   ],
+   "motor": "RS02",
+   "effort": 17.0,
+   "velocity": 33.3,
+   "armature": 0.013,
+   "friction": 0.12,
+   "damping": 0.0009
+  },
+  "right_knee_pitch_joint": {
+   "raw": "knee_pitch_r",
+   "kind": "knee_pitch",
+   "sign_vs_raw": -1.0,
+   "pos": [
+    1.3931345910211945e-08,
+    -0.15974999999987755,
+    -0.3199999999999993
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "lower": -0.0,
+   "upper": 1.0472,
+   "urdf_limits": [
+    -0.0,
+    1.0472
+   ],
+   "motor": "RS03",
+   "effort": 60.0,
+   "velocity": 16.4,
+   "armature": 0.07,
+   "friction": 0.4,
+   "damping": 0.013
+  },
+  "left_knee_pitch_joint": {
+   "raw": "knee_pitch_l",
+   "kind": "knee_pitch",
+   "sign_vs_raw": 1.0,
+   "pos": [
+    1.6591570180246595e-06,
+    0.1597499999999481,
+    -0.319999999995701
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "lower": 0.0,
+   "upper": 1.0472,
+   "urdf_limits": [
+    0.0,
+    1.0472
+   ],
+   "motor": "RS03",
+   "effort": 60.0,
+   "velocity": 16.4,
+   "armature": 0.07,
+   "friction": 0.4,
+   "damping": 0.013
+  },
+  "right_ankle_pitch_joint": {
+   "raw": "ankle_pitch_r",
+   "kind": "ankle_pitch",
+   "sign_vs_raw": 1.0,
+   "pos": [
+    2.367002102654503e-08,
+    -0.15607999999989075,
+    -0.5799999999999991
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "lower": -1.5708,
+   "upper": 1.5708,
+   "urdf_limits": [
+    -1.5708,
+    1.5708
+   ],
+   "motor": "RS06",
+   "effort": 36.0,
+   "velocity": 37.7,
+   "armature": 0.018,
+   "friction": 0.18,
+   "damping": 0.0018
+  },
+  "left_ankle_pitch_joint": {
+   "raw": "ankle_pitch_l",
+   "kind": "ankle_pitch",
+   "sign_vs_raw": -1.0,
+   "pos": [
+    3.0487623860764312e-06,
+    0.15607999999996097,
+    -0.5799999999919877
+   ],
+   "axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "lower": -1.5708,
+   "upper": 1.5708,
+   "urdf_limits": [
+    -1.5708,
+    1.5708
+   ],
+   "motor": "RS06",
+   "effort": 36.0,
+   "velocity": 37.7,
+   "armature": 0.018,
+   "friction": 0.18,
+   "damping": 0.0018
+  }
+ },
+ "zero_mass_parts": [],
+ "mass_raw": {
+  "base_link": 6.9407,
+  "left_hip_pitch_link": 1.2807,
+  "right_hip_pitch_link": 1.2807,
+  "left_hip_roll_link": 0.3659,
+  "right_hip_roll_link": 0.3438,
+  "right_thigh_link": 0.8106,
+  "left_thigh_link": 0.8074,
+  "right_shank_link": 2.1236,
+  "left_shank_link": 2.2386,
+  "right_foot_link": 0.3384,
+  "left_foot_link": 0.3384
+ },
+ "total_mass": 16.8688,
+ "com_at_zero": [
+  0.0014,
+  -0.0002,
+  -0.1072
+ ],
+ "base_height_straight_legs": 0.6721,
+ "bodies": {
+  "base_link": {
+   "mass": 6.9407,
+   "com": [
+    0.0018,
+    -0.0004,
+    0.1254
+   ],
+   "box_center": [
+    0.0,
+    -0.0,
+    0.1634
+   ],
+   "box_size": [
+    0.123,
+    0.5025,
+    0.4417
+   ],
+   "n_tris": 178334,
+   "parts": 78
+  },
+  "left_hip_pitch_link": {
+   "mass": 1.2807,
+   "com": [
+    0.0039,
+    0.0967,
+    0.0
+   ],
+   "box_center": [
+    -0.0057,
+    0.0805,
+    0.0
+   ],
+   "box_size": [
+    0.1009,
+    0.161,
+    0.1119
+   ],
+   "n_tris": 41476,
+   "parts": 8
+  },
+  "right_hip_pitch_link": {
+   "mass": 1.2807,
+   "com": [
+    0.0039,
+    -0.0967,
+    0.0
+   ],
+   "box_center": [
+    0.0025,
+    -0.0805,
+    0.0
+   ],
+   "box_size": [
+    0.0845,
+    0.161,
+    0.1119
+   ],
+   "n_tris": 40768,
+   "parts": 7
+  },
+  "left_hip_roll_link": {
+   "mass": 0.3548,
+   "com": [
+    -0.0129,
+    -0.0,
+    -0.0652
+   ],
+   "box_center": [
+    -0.0147,
+    -0.0,
+    -0.0643
+   ],
+   "box_size": [
+    0.1075,
+    0.08,
+    0.2014
+   ],
+   "n_tris": 41886,
+   "parts": 10
+  },
+  "right_hip_roll_link": {
+   "mass": 0.3548,
+   "com": [
+    -0.0129,
+    0.0,
+    -0.0652
+   ],
+   "box_center": [
+    -0.0147,
+    0.0,
+    -0.0643
+   ],
+   "box_size": [
+    0.1075,
+    0.08,
+    0.2014
+   ],
+   "n_tris": 34242,
+   "parts": 8
+  },
+  "right_thigh_link": {
+   "mass": 0.809,
+   "com": [
+    0.0,
+    -0.0002,
+    -0.0375
+   ],
+   "box_center": [
+    0.0,
+    0.0,
+    -0.0795
+   ],
+   "box_size": [
+    0.0824,
+    0.1075,
+    0.2239
+   ],
+   "n_tris": 52024,
+   "parts": 12
+  },
+  "left_thigh_link": {
+   "mass": 0.809,
+   "com": [
+    0.0,
+    0.0002,
+    -0.0375
+   ],
+   "box_center": [
+    0.0,
+    -0.0,
+    -0.0795
+   ],
+   "box_size": [
+    0.0824,
+    0.1075,
+    0.2239
+   ],
+   "n_tris": 45738,
+   "parts": 11
+  },
+  "right_shank_link": {
+   "mass": 2.1811,
+   "com": [
+    0.0001,
+    0.0113,
+    -0.1102
+   ],
+   "box_center": [
+    0.0,
+    0.0172,
+    -0.126
+   ],
+   "box_size": [
+    0.1119,
+    0.0845,
+    0.3639
+   ],
+   "n_tris": 55426,
+   "parts": 11
+  },
+  "left_shank_link": {
+   "mass": 2.1811,
+   "com": [
+    0.0001,
+    -0.0113,
+    -0.1102
+   ],
+   "box_center": [
+    0.0,
+    -0.0172,
+    -0.126
+   ],
+   "box_size": [
+    0.1119,
+    0.0845,
+    0.3639
+   ],
+   "n_tris": 55400,
+   "parts": 11
+  },
+  "right_foot_link": {
+   "mass": 0.3384,
+   "com": [
+    0.0,
+    0.0113,
+    -0.0518
+   ],
+   "box_center": [
+    0.0,
+    0.0111,
+    -0.0821
+   ],
+   "box_size": [
+    0.15,
+    0.1022,
+    0.02
+   ],
+   "n_tris": 12716,
+   "parts": 7
+  },
+  "left_foot_link": {
+   "mass": 0.3384,
+   "com": [
+    0.0,
+    -0.0113,
+    -0.0518
+   ],
+   "box_center": [
+    0.0,
+    -0.0111,
+    -0.0821
+   ],
+   "box_size": [
+    0.15,
+    0.1022,
+    0.02
+   ],
+   "n_tris": 12716,
+   "parts": 7
+  }
+ },
+ "foot_sole_contact_x": [
+  -0.075,
+  0.075
+ ]
+}

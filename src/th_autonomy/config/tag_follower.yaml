@@ -29,7 +29,7 @@ tag_follower:
       # Otherwise a pinhole guess from the horizontal field of view. Bearing is
       # close either way; distance scales with this, so check it with a tape measure.
       hfov_deg: 90.0
-      rotation: 0                    # degrees clockwise to turn frames upright; 180 = mounted upside down
+      rotation: 180                  # 2026-11-19: camera mounted upside down. degrees clockwise to turn frames upright; 180 = mounted upside down
       # Where it sits on the robot, for the 3D view: on the chest above the logo (a guess;
       # measure once mounted). Relative to base_link: x forward, y left, z up (m), and
       # roll, pitch, yaw (rad; pitch > 0 tilts it down).

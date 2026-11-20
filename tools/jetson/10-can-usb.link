@@ -6,3 +6,6 @@ Driver=gs_usb
 
 [Link]
 Name=can_usb
+# 1000, not the CAN default 10: five motor nodes share one adapter at 100 Hz each, and a
+# 10-frame queue overflows whenever USB pauses ("CAN write failed", 300+ ms feedback gaps).
+TransmitQueueLength=1000

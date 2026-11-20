@@ -8,6 +8,8 @@
 #include "th_policy_bridge/heading_hold.hpp"
 #include "th_policy_bridge/joint_mapping.hpp"
 #include "th_policy_bridge/observation.hpp"
+#include "th_policy_bridge/safety.hpp"
+#include "th_policy_bridge/stand_balance.hpp"
 
 namespace tb = th_policy_bridge;
 
@@ -273,4 +275,209 @@ TEST(HeadingHold, RejectsBadParameters)
 {
   EXPECT_THROW(tb::HeadingHold(-1.0, 0.3), std::invalid_argument);
   EXPECT_THROW(tb::HeadingHold(1.0, std::numeric_limits<double>::quiet_NaN()), std::invalid_argument);
+}
+
+TEST(FreezeWatch, FrozenOnlyWhenUnchangedWhileTheTargetMoves)
+{
+  tb::FreezeWatch w;
+  w.update(1.0, 0.0);
+  w.observe_ref(0.0);
+  w.observe_ref(0.05);
+  EXPECT_FALSE(w.frozen(1.0, 0.5, 0.1));  // target moved only 0.05: a joint holding still
+  w.observe_ref(0.2);
+  EXPECT_FALSE(w.frozen(0.4, 0.5, 0.1));  // not long enough yet
+  EXPECT_TRUE(w.frozen(0.6, 0.5, 0.1));   // 0.6 s unchanged while the target moved 0.2
+  w.update(1.0001, 0.7);                  // feedback changed: starts over
+  EXPECT_FALSE(w.frozen(2.0, 0.5, 0.1));  // and no target since
+  w.observe_ref(0.2);
+  EXPECT_FALSE(w.frozen(2.0, 0.5, 0.1));  // a steady target is no move
+}
+
+TEST(FreezeWatch, TargetsFromBeforeAResetDoNotCount)
+{
+  tb::FreezeWatch w;
+  w.update(2.0, 0.0);
+  w.observe_ref(0.0);                     // e.g. the last STAND target
+  w.reset();                              // WALK starts
+  w.update(2.0, 1.0);
+  w.observe_ref(0.6);                     // first WALK targets, steady
+  w.observe_ref(0.6);
+  EXPECT_FALSE(w.frozen(3.0, 0.5, 0.1));
+}
+
+TEST(FreezeWatch, RangeCountsBothWaysAndTimeoutZeroDisables)
+{
+  tb::FreezeWatch w;
+  w.update(2.0, 0.0);
+  w.observe_ref(0.06);
+  w.observe_ref(-0.06);                   // swung back and forth, 0.12 in total
+  EXPECT_TRUE(w.frozen(1.0, 0.5, 0.1));
+  EXPECT_FALSE(w.frozen(1.0, 0.0, 0.1));  // freeze_timeout 0 = off
+  w.reset();
+  EXPECT_FALSE(w.frozen(9.0, 0.5, 0.1));
+}
+
+TEST(VectorFreezeWatch, IdenticalVectorsFreezeAnyChangeResets)
+{
+  tb::VectorFreezeWatch w;
+  w.update({0.1, 0.2}, 0.0);
+  w.update({0.1, 0.2}, 0.3);
+  EXPECT_FALSE(w.frozen(0.4, 0.5));
+  EXPECT_TRUE(w.frozen(0.6, 0.5));
+  w.update({0.1, 0.2000001}, 0.6);
+  EXPECT_FALSE(w.frozen(1.0, 0.5));
+  EXPECT_FALSE(w.frozen(1.0, 0.0));
+}
+
+TEST(OverLimitWatch, TripsOnlyAfterTheHoldAndResetsBelowTheLimit)
+{
+  tb::OverLimitWatch w;
+  w.update(12.0, 10.0, 0.00);
+  EXPECT_FALSE(w.tripped(0.03, 0.05));    // over, not long enough
+  w.update(-13.0, 10.0, 0.03);            // sign does not matter
+  EXPECT_TRUE(w.tripped(0.06, 0.05));
+  EXPECT_DOUBLE_EQ(w.peak, 13.0);
+  w.update(9.0, 10.0, 0.07);              // back under: starts over
+  EXPECT_FALSE(w.tripped(1.0, 0.05));
+  w.update(11.0, 10.0, 1.0);              // a single spike
+  w.update(2.0, 10.0, 1.01);
+  EXPECT_FALSE(w.tripped(2.0, 0.05));
+  w.update(50.0, 0.0, 3.0);               // limit 0 = off
+  EXPECT_FALSE(w.tripped(9.0, 0.05));
+}
+
+TEST(HeldGaitClock, StillWhenStandingAdvancesWhenWalkingRestartsFromZero)
+{
+  tb::HeldGaitClock c;
+  const std::array<double, 3> stand{0.0, 0.0, 0.0}, drift{0.04, 0.03, 0.0}, walk{0.3, 0.0, 0.0};
+  EXPECT_DOUBLE_EQ(c.step(walk, 0.02, 0.72, 0.1), 0.0);       // first WALK step: phase 0
+  EXPECT_NEAR(c.step(walk, 0.02, 0.72, 0.1), 0.02 / 0.72, 1e-12);
+  EXPECT_NEAR(c.step(walk, 0.02, 0.72, 0.1), 0.04 / 0.72, 1e-12);
+  EXPECT_DOUBLE_EQ(c.step(stand, 0.02, 0.72, 0.1), 0.0);      // stand command: held at 0
+  EXPECT_DOUBLE_EQ(c.step(drift, 0.02, 0.72, 0.1), 0.0);      // stick drift (|v| = 0.05) counts as standing
+  EXPECT_NEAR(c.step(walk, 0.02, 0.72, 0.1), 0.02 / 0.72, 1e-12);  // walking again: from 0
+  for (int i = 0; i < 36; ++i) {c.step(walk, 0.02, 0.72, 0.1);}
+  EXPECT_NEAR(c.phase, 0.02 / 0.72, 1e-9);                    // wraps after one period (37 steps)
+  EXPECT_NEAR(c.step({0.0, 0.0, 0.2}, 0.02, 0.72, 0.1), 0.04 / 0.72, 1e-9);  // turning in place walks
+  c.reset();
+  EXPECT_DOUBLE_EQ(c.step(walk, 0.02, 0.72, 0.1), 0.0);
+}
+
+TEST(CenteringTrim, LeansTowardTheTorqueSlowlyClampsAndFreezesDuringPushes)
+{
+  tb::CenteringTrim t;
+  EXPECT_DOUBLE_EQ(t.update(2.0, 2.0, 0.02), 0.0);  // gain 0 = off
+  t.gain = 0.0015;
+  t.reset();
+  for (int i = 0; i < 50; ++i) {t.update(1.75, 1.75, 0.02);}  // COM forward: steady +1.75 N m
+  EXPECT_GT(t.lean, 0.0);                       // lean back (ankles toes down)
+  EXPECT_LT(t.lean, 0.002);                     // but slowly: < 0.002 rad after 1 s
+  const double before = t.lean;
+  t.update(5.7, 5.7, 0.02);                     // a push: ankles at the foot-edge limit
+  EXPECT_DOUBLE_EQ(t.lean, before);             // frozen, no windup
+  for (int i = 0; i < 100000; ++i) {t.update(5.0, 5.0, 0.02);}
+  EXPECT_DOUBLE_EQ(t.lean, t.max_lean);         // clamped
+  t.reset();
+  for (int i = 0; i < 500; ++i) {t.update(-1.0, -1.0, 0.02);}
+  EXPECT_LT(t.lean, 0.0);                       // COM back: lean forward
+}
+
+TEST(ManualLean, StepsClampsAndFollowsAtTheRate)
+{
+  tb::ManualLean l;
+  l.nudge(-1);
+  l.nudge(-1);
+  EXPECT_DOUBLE_EQ(l.target, -0.02);
+  EXPECT_DOUBLE_EQ(l.applied, 0.0);
+  EXPECT_NEAR(l.update(0.02), -0.001, 1e-12);   // 0.05 rad/s x 20 ms: no jump
+  for (int i = 0; i < 100; ++i) {l.update(0.02);}
+  EXPECT_DOUBLE_EQ(l.applied, -0.02);
+  for (int i = 0; i < 100; ++i) {l.nudge(+1);}
+  EXPECT_DOUBLE_EQ(l.target, l.max);            // clamped
+  l.target = -0.08;
+  l.snap();
+  EXPECT_DOUBLE_EQ(l.applied, -0.08);           // STAND entry ramps straight into the lean
+}
+
+TEST(CenteringTrim, HoldsATargetTorqueInsteadOfZero)
+{
+  tb::CenteringTrim t;
+  t.gain = 0.0015;
+  t.max_lean = 0.03;
+  t.target_torque = 1.5;
+  t.reset();
+  EXPECT_DOUBLE_EQ(t.filtered, 1.5);            // starts on target: no transient
+  for (int i = 0; i < 500; ++i) {t.update(1.5, 1.5, 0.02);}
+  EXPECT_DOUBLE_EQ(t.lean, 0.0);                // at the target torque: no lean
+  for (int i = 0; i < 500; ++i) {t.update(0.5, 0.5, 0.02);}
+  EXPECT_LT(t.lean, 0.0);                       // below target (weight too far back): lean forward
+  t.reset();
+  for (int i = 0; i < 500; ++i) {t.update(2.5, 2.5, 0.02);}
+  EXPECT_GT(t.lean, 0.0);                       // above target: lean back
+  for (int i = 0; i < 200000; ++i) {t.update(4.0, 4.0, 0.02);}
+  EXPECT_DOUBLE_EQ(t.lean, 0.03);               // clamped to its own small max
+}
+
+TEST(TrimGate, WaitsForItsButtonAndRearmsOnEveryStand)
+{
+  tb::TrimGate g;
+  EXPECT_TRUE(g.active());                      // no gate configured: old behavior, always on
+  g.enabled = true;
+  EXPECT_FALSE(g.active());                     // gated: waits
+  g.arm();
+  EXPECT_TRUE(g.active());                      // button pressed
+  g.reset();                                    // new STAND or disarm
+  EXPECT_FALSE(g.active());
+  g.arm();
+  g.arm();
+  EXPECT_TRUE(g.active());
+}
+
+TEST(SquatMotion, ZeroAtTheEndsMonotonicDownAndUpAndSlow)
+{
+  tb::SquatMotion s;
+  s.depth = 0.02;
+  s.down_time = 3.0;
+  s.hold_time = 1.0;
+  // table endpoints and interpolation
+  const auto z0 = tb::SquatMotion::at_depth(0.0);
+  EXPECT_DOUBLE_EQ(z0[0], 0.0);
+  EXPECT_DOUBLE_EQ(z0[1], 0.0);
+  EXPECT_DOUBLE_EQ(z0[2], 0.0);
+  const auto mid = tb::SquatMotion::at_depth(0.0025);   // halfway between the 0 and 0.5 cm rows
+  EXPECT_NEAR(mid[1], 0.5 * 0.081702, 1e-12);
+  EXPECT_DOUBLE_EQ(tb::SquatMotion::at_depth(1.0)[1], tb::SquatMotion::kTable.back().knee);  // clamped
+  // timing
+  EXPECT_DOUBLE_EQ(s.depth_at(-1.0), 0.0);
+  EXPECT_DOUBLE_EQ(s.depth_at(3.5), 0.02);
+  EXPECT_DOUBLE_EQ(s.depth_at(7.0), 0.0);
+  EXPECT_FALSE(s.running);
+  EXPECT_DOUBLE_EQ(s.offsets(5.0)[1], 0.0);              // not started: zero
+  s.begin(10.0);
+  double prev_knee = 0.0, max_rate = 0.0;
+  for (int i = 1; i <= 150; ++i) {                        // down phase, 50 Hz
+    const auto o = s.offsets(10.0 + i * 0.02);
+    EXPECT_GE(o[1], prev_knee - 1e-12);                   // knee bends monotonically
+    EXPECT_LE(o[0], 1e-12);                               // hip offset <= 0
+    EXPECT_LE(o[2], 1e-12);                               // ankle offset <= 0
+    max_rate = std::max(max_rate, std::abs(o[1] - prev_knee) / 0.02);
+    prev_knee = o[1];
+  }
+  EXPECT_NEAR(prev_knee, 0.268828, 1e-6);                 // bottom = the 2 cm row
+  EXPECT_LT(max_rate, 0.3);                               // rad/s, far below the 2 rad/s trip
+  for (int i = 151; i <= 349; ++i) {
+    const auto o = s.offsets(10.0 + i * 0.02);
+    max_rate = std::max(max_rate, std::abs(o[1] - prev_knee) / 0.02);
+    if (i > 200) {EXPECT_LE(o[1], prev_knee + 1e-12);}  // up phase: knee straightens monotonically
+    prev_knee = o[1];
+  }
+  EXPECT_LT(max_rate, 0.3);
+  const auto end = s.offsets(17.0);                       // past the 7 s cycle
+  EXPECT_DOUBLE_EQ(end[0], 0.0);
+  EXPECT_DOUBLE_EQ(end[1], 0.0);
+  EXPECT_DOUBLE_EQ(end[2], 0.0);
+  EXPECT_FALSE(s.running);
+  s.begin(20.0);
+  s.stop();                                               // B / disarm / new STAND
+  EXPECT_DOUBLE_EQ(s.offsets(21.0)[1], 0.0);
 }

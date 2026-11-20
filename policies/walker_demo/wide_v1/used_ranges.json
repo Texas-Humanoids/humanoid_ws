@@ -1,0 +1,42 @@
+{
+ "left_hip_pitch_joint": [
+  -0.45,
+  0.024
+ ],
+ "left_hip_roll_joint": [
+  -0.045,
+  0.108
+ ],
+ "left_hip_yaw_joint": [
+  -0.151,
+  0.177
+ ],
+ "left_knee_pitch_joint": [
+  0.309,
+  0.888
+ ],
+ "left_ankle_pitch_joint": [
+  -0.435,
+  -0.045
+ ],
+ "right_hip_pitch_joint": [
+  -0.431,
+  0.005
+ ],
+ "right_hip_roll_joint": [
+  -0.116,
+  0.036
+ ],
+ "right_hip_yaw_joint": [
+  -0.183,
+  0.179
+ ],
+ "right_knee_pitch_joint": [
+  0.311,
+  0.88
+ ],
+ "right_ankle_pitch_joint": [
+  -0.372,
+  -0.013
+ ]
+}

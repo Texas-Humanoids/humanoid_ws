@@ -21,6 +21,21 @@ bench camera (uStreamer) ──────> mjpeg_camera           /camera/imag
 `robot.launch.py` starts all of this by default (`foxglove:=true`), so there is
 nothing extra to run on the robot.
 
+## Demo walker (walker_demo): `ros.sh dashboard`
+
+On the demo walker the dashboard runs in its **own container**, apart from the motor stack
+(`tools/walker/bringup/ros.sh dashboard`, `... dashboard stop|status|log`): capped at one CPU core
+(`docker --cpus 1.0`), with the walker_demo model, and `ros.sh launch` now passes `foxglove:=false`.
+Import [`layouts/walker_demo.json`](layouts/walker_demo.json): its first tab, **Stand**, shows the
+robot, state, health, body lean vs the commanded ankle lean, ankle and knee torque in the joint
+frame (+ ankle = weight ahead of the ankles) and the last gamepad button. Start it while the
+robot is disarmed: a new ROS process joining the network can briefly stall the Jetson.
+
+robot_monitor samples its 100-200 Hz inputs (motor feedback, IMU) instead of taking every
+message (that took ~75% of a core); foxglove_bridge only offers the layouts' topics
+(`TOPIC_WHITELIST` in the launch file; `tools/check_layout_topics.py` checks a layout against it).
+CPU in the System tab is `/robot/cpu_percent` (whole computer, from /proc/stat).
+
 ## Set up the dashboard (once)
 
 1. **Install Foxglove** on your laptop: download the desktop app from

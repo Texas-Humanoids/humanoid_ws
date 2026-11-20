@@ -117,3 +117,23 @@ def tilt(orientation):
     """Angle (rad) between base_link's z axis and the world's up axis."""
     w, x, y, z = quat_normalize(orientation)
     return math.acos(max(-1.0, min(1.0, 1.0 - 2.0 * (x * x + y * y))))
+
+
+def cpu_times(proc_stat_text):
+    """(busy, total) jiffies from the first 'cpu ' line of /proc/stat (all cores)."""
+    for line in proc_stat_text.splitlines():
+        if line.startswith('cpu '):
+            values = [int(v) for v in line.split()[1:]]
+            idle = values[3] + (values[4] if len(values) > 4 else 0)  # idle + iowait
+            total = sum(values[:8])  # user..steal; guest time is already inside user
+            return total - idle, total
+    raise ValueError('no aggregate cpu line in /proc/stat')
+
+
+def cpu_percent(previous, current):
+    """Whole-machine CPU use (%) between two cpu_times() samples; NaN if no time passed."""
+    busy = current[0] - previous[0]
+    total = current[1] - previous[1]
+    if total <= 0:
+        return math.nan
+    return max(0.0, min(100.0, 100.0 * busy / total))
