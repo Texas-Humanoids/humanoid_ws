@@ -31,7 +31,8 @@ Then **START** (stand), **A** (walk), **Y** (follow).
 | Control | Effect |
 |---|---|
 | **Y** | Toggle following. Only turns on while the bridge is in WALK. |
-| **B** or **BACK** | Following off (BACK also disarms the bridge). The person follower also releases whoever claimed it. |
+| **B** | Disarms the bridge (only that; it is not a follow control). Following turns off with it. |
+| **BACK** | Disarms the bridge and turns following off. The person follower also releases whoever claimed it. |
 | Hold **LB** | The gamepad drives; following resumes from standstill on release. |
 | Bridge leaves WALK | Following off. |
 
@@ -86,7 +87,7 @@ cv2.imwrite('tag0.png', cv2.copyMakeBorder(render_tag('tag36h11', 0, 800), 100, 
 - **Y with nobody claimed** takes the largest (nearest) person.
 - **While it follows someone in view, nobody else can claim it.** If they are
   lost, a raised hand from anyone takes over.
-- **B** stops following and releases the claim, so the next raised hand (or Y)
+- **BACK** disarms, stops following and releases the claim, so the next raised hand (or Y)
   picks someone new.
 
 It stops 1.5 m away and never backs up from a person.
@@ -144,9 +145,11 @@ the smaller of `fy * 1.7 m / box height` and `fx * 0.45 m / box width`.
 
 It reads the MJPEG relay th_foxglove already runs (`camera_url`, the Arducam
 bench camera at 1280x720). The camera must face forward and roughly level.
-If it is mounted sideways or upside down, set `camera.rotation` (90, 180 or
-270 degrees clockwise) so frames reach the detector upright; calibrated
-intrinsics are then for the turned image.
+If it is mounted sideways or upside down, turn it once, in the `mjpeg_camera`
+relay (`camera_rotation:=` on foxglove.launch.py or follow.launch.py; default
+180 for the walker), so the dashboard and the follower both get upright frames.
+Leave the follower's `camera.rotation` at 0 then, or the image is turned twice.
+Calibrated intrinsics are for the turned image.
 
 - **Bearing** (which way to turn) is nearly independent of calibration. The
   Arducam has a wide fisheye lens, so with the 90° pinhole guess the bearing

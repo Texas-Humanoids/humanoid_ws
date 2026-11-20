@@ -1,0 +1,18 @@
+# Slow, demo-safe gamepad speeds for the demo walker (robot.launch.py gamepad_config:=<this file>).
+# Full stick = the speeds below. Same layout as gamepad_node/config/gamepad_node.yaml otherwise.
+# cad_safe_v1 was trained for vx -0.15..0.25 m/s and wz +-0.4 rad/s, and none of the demo policies
+# step sideways, so lateral is 0. Stick drift (vx ~0.04 of full scale, 10-01) becomes < 0.01 m/s here.
+gamepad_node:
+  ros__parameters:
+    scale.linear.x: 0.2     # m/s at full stick (forward; backward is the same magnitude)
+    scale.linear.y: 0.0     # no sidestep
+    scale.angular.z: 0.35   # rad/s at full stick
+    keyboard_scaling: 0.8
+    axis_forward: 1
+    axis_lateral: 0
+    axis_turn: 2            # right stick X
+    enable_button: 9        # LB must be held for any motion command; -1 disables it
+    joy_timeout: 0.5
+    keyboard_device: ""
+    publish_rate: 20.0
+    print_velocity: true

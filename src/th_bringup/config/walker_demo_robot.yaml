@@ -1,0 +1,209 @@
+# Demo walker (Onshape pkg_002, 2026-11-17) hardware map. Same 10-motor layout as WalkerV2.
+#   ros2 launch th_bringup robot.launch.py \
+#     motors_config:=src/th_bringup/config/walker_demo_robot.yaml \
+#     policy_spec:=policies/walker_demo/<cad_v1|wide_v1>/policy_spec.json \
+#     model_path:=policies/walker_demo/<cad_v1|wide_v1>/policy.onnx walk_event:='A pressed'
+#
+# FILL IN with tools/walker/bringup/jog.py (no ROS needed; robot.launch.py must be stopped):
+#   direction - p (pulse) + y/n on every joint, robot hanging. w writes it here.
+#   offset    - z z with the robot held in the zero pose (legs straight down, feet flat, toes
+#               forward), then w. The launch refuses while any offset is null.
+#   can_interface - AS WIRED 2026-11-19: left leg (11-15) is on can_right (adapter 002C...), right leg
+#               (21-25) on can_left (002D...): the opposite of PR #62's names. Kept that way on purpose
+#               (cables can't move). bringup.py scan flags any mismatch.
+# VERIFY:
+#   limits    - these are the CAD limits of the cad policy (hip roll abduction-only, knee <= 60 deg).
+#               The bridge clamps targets to them. Measure the real stops with jog.py (seen column),
+#               and if you deploy the wide policy, use its limits (policy_spec.json joint_limits).
+#   motor_id  - same IDs as the WalkerV2 bench: left 11-15, right 21-25 (hip pitch, hip roll, hip
+#               yaw, knee, ankle). jog.py lists what actually answers.
+
+control_mode: mit
+# stand_pose (per motor, 2026-11-19): the hardcoded weight-bearing stand, found on the robot, not from CAD.
+#   Taught by hand (limp read), then swept forward (bringup.py sweep) until the mean ankle torque sat just
+#   positive (+0.5 to +1 Nm, weight a few mm ahead of the ankles); between those, the robot tipped back or
+#   onto its toes. The legs differ (R knee ~0.12 less): that cancels this calibration's errors, so
+#   re-find it (sweep) after any recalibration. The balanced band is only ~0.01 rad of hip and moves
+#   with where the feet land, so `stand` adds a slow ankle-torque balance loop on top (--no-balance: off).  Run:  sudo python3 tools/walker/bringup/bringup.py stand
+# The demo policies' gains stand on PD alone (sim2sim_demo stand: down to 0.7x kp with 15 ms delay),
+# STAND (START, before A) is a stiffness-only stand: no policy, it holds the stand pose on PD.
+# stand_kp / stand_kd below (2026-11-19, ~1.5x the policy gains) are used ONLY in STAND; WALK always
+# uses the policy's trained gains. Sim: halves the sway vs the policy gains, same torque; no PD gains
+# survive a shove >~0.3 m/s (the foot length limits ankle torque to ~6 Nm), only the policy balances.
+damping_kd: 1.0
+# STAND-mode COM centering, no policy (th_policy_bridge stand_balance.hpp; tuned and tested in
+# th_training/stand_balance.py): leans the robot on its ankles, slowly, until the mean ankle torque
+# is ~0 (COM over mid-foot), which keeps the push margin even when the real COM or the ankle
+# calibration is off. gain 0 = off. `ros.sh launch stand-balance` turns it on with 0.0015.
+stand_balance:
+  gain: 0.0           # rad/s per N m (sim-tested: 0.0015)
+  max_lean: 0.12      # rad, ~6.9 deg each way (2026-11-19: full-weight test leaned back onto the rope)
+  filter_time: 1.0    # s
+  freeze_above: 2.5   # N m: no integration while an ankle works this much harder than average (pushes)
+  lean: -0.055        # rad, 2026-11-19 21:45: after the hip-roll recal -0.070 sat too far forward (+2.5..+3.9 Nm). Earlier 21:25: -0.050 tipped back after the right hip-yaw recal (6.2 deg); was: 18:15 D-pad balance point, stood hands-off >1 min, ankle torque +1.4..+2.0 Nm. STAND starts here (+ = back, - = forward); D-pad adjusts it
+                      # live in 0.01 steps and logs the value to put here
+feedback_rate: 100.0
+
+imu:
+  driver: vectornav
+  port: /dev/serial/by-id/usb-FTDI_USB-RS232-WE_AV0LSON8-if00-port0
+  baud: 115200
+  rate: 200.0
+  # Rotation taking IMU-frame vectors (ROS: x forward, y left, z up) into base_link, [w, x, y, z].
+  # Identity = VN-100 flat, label up, x arrow forward. The URDF has no IMU part, so CHECK on the
+  # robot: `ros2 topic echo /policy_bridge/projected_gravity` -> upright 0 0 -1; nose down +x;
+  # left side down +y.
+  rotation: [1.0, 0.0, 0.0, 0.0]
+  world_frame: enu
+
+# Bridge trips (2026-11-19, after the policy broke a leg on its first ground contact):
+#   max_tilt            rad from upright before the bridge disarms (default 1.0 = 57 deg)
+#   joint_velocity_hold s a joint must stay over its max_velocity to trip (default 0.05)
+safety:
+  max_tilt: 0.35
+  joint_velocity_hold: 0.02
+
+heading_hold:
+  gain: 1.5
+  max_rate: 0.3
+
+motors:
+  - joint: left_hip_pitch_joint
+    stand_kp: 120.0   # STAND only (policy gain stays in policy_spec.json)
+    stand_kd: 5.0
+    stand_pose: -0.1688  # joint rad, hardcoded stand (2026-11-19 sweep, move 1)
+    motor_id: 11
+    motor_model: RS03
+    can_interface: can_right
+    direction: -1.0  # PR #62 hand-turned 2026-11-18; confirm with bringup.py pulse
+    offset: -0.5983
+    lower: -0.7854
+    upper: 0.7854
+    max_velocity: 3.0  # rad/s, 2026-11-19 after the leg break (was 6.0: ~1.5x sim2sim peak; raise for walking)
+    torque_limit: 25.0  # Nm, 2026-11-19 after the leg break (model max 60); standing needs < 7
+
+  - joint: left_hip_roll_joint
+    stand_kp: 150.0   # STAND only (policy gain stays in policy_spec.json)
+    stand_kd: 6.0
+    stand_pose: +0.0820  # joint rad, hardcoded stand (2026-11-19 sweep)
+    motor_id: 12
+    motor_model: RS03
+    can_interface: can_right
+    direction: -1.0  # PR #62 hand-turned 2026-11-18; confirm with bringup.py pulse
+    offset: 0.3832  # zero +3 deg outward correction by eye 2026-11-19 (was 0.5135)
+    lower: 0.0
+    upper: 0.7854
+    max_velocity: 3.0  # rad/s, 2026-11-19 after the leg break (was 4.0: ~1.5x sim2sim peak; raise for walking)
+    torque_limit: 25.0  # Nm, 2026-11-19 after the leg break (model max 60); standing needs < 7
+
+  - joint: left_hip_yaw_joint
+    stand_kp: 40.0   # STAND only (policy gain stays in policy_spec.json)
+    stand_kd: 1.5
+    stand_pose: +0.0010  # joint rad, hardcoded stand (2026-11-19 sweep)
+    motor_id: 13
+    motor_model: RS02
+    can_interface: can_right
+    direction: 1.0  # PR #62 hand-turned 2026-11-18; confirm with bringup.py pulse
+    offset: -2.0595
+    lower: -0.7854
+    upper: 0.7854
+    max_velocity: 3.0  # rad/s, 2026-11-19 after the leg break (was 8.0: ~1.5x sim2sim peak; raise for walking)
+    torque_limit: 8.0  # Nm, 2026-11-19 after the leg break (model max 17); standing needs < 7
+
+  - joint: left_knee_pitch_joint
+    stand_kp: 180.0   # STAND only (policy gain stays in policy_spec.json)
+    stand_kd: 6.0
+    stand_pose: +0.5333  # joint rad, hardcoded stand (2026-11-19 sweep, move 1)
+    motor_id: 14
+    motor_model: RS03
+    can_interface: can_right
+    direction: 1.0  # FLIPPED 2026-11-19: PR #62 value bent the knee forward (bird-like), seen in squat + pulse
+    offset: 1.8838
+    lower: 0.0
+    upper: 1.0472
+    max_velocity: 3.0  # rad/s, 2026-11-19 after the leg break (was 12.0: ~1.5x sim2sim peak; raise for walking)
+    torque_limit: 25.0  # Nm, 2026-11-19 after the leg break (model max 60); standing needs < 7
+
+  - joint: left_ankle_pitch_joint
+    stand_kp: 150.0   # STAND only (policy gain stays in policy_spec.json)
+    stand_kd: 3.5
+    stand_pose: -0.3747  # joint rad, hardcoded stand (2026-11-19 sweep, move 1)
+    motor_id: 15
+    motor_model: RS06
+    can_interface: can_right
+    direction: -1.0  # FLIPPED 2026-11-19: PR #62 value put the toes ~23 deg DOWN in the stand pose
+    offset: 0.2053
+    lower: -1.5708
+    upper: 1.5708
+    max_velocity: 3.0  # rad/s, 2026-11-19 after the leg break (was 18.0: ~1.5x sim2sim peak; raise for walking)
+    torque_limit: 15.0  # Nm, 2026-11-19 after the leg break (model max 36); standing needs < 7
+
+  - joint: right_hip_pitch_joint
+    stand_kp: 120.0   # STAND only (policy gain stays in policy_spec.json)
+    stand_kd: 5.0
+    stand_pose: -0.1898  # joint rad, hardcoded stand (2026-11-19 sweep, move 1)
+    motor_id: 21
+    motor_model: RS03
+    can_interface: can_left
+    direction: 1.0  # PR #62 hand-turned 2026-11-18; confirm with bringup.py pulse
+    offset: 0.2075  # auto turn-fix 2026-11-19 20:24: drive booted one output turn off (was 6.4907)
+    lower: -0.7854
+    upper: 0.7854
+    max_velocity: 3.0  # rad/s, 2026-11-19 after the leg break (was 6.0: ~1.5x sim2sim peak; raise for walking)
+    torque_limit: 25.0  # Nm, 2026-11-19 after the leg break (model max 60); standing needs < 7
+
+  - joint: right_hip_roll_joint
+    stand_kp: 150.0   # STAND only (policy gain stays in policy_spec.json)
+    stand_kd: 6.0
+    stand_pose: -0.0020  # joint rad, hardcoded stand (2026-11-19 sweep)
+    motor_id: 22
+    motor_model: RS03
+    can_interface: can_left
+    direction: -1.0  # PR #62 hand-turned 2026-11-18; confirm with bringup.py pulse
+    offset: 0.2044
+    lower: -0.7854
+    upper: 0.0
+    max_velocity: 3.0  # rad/s, 2026-11-19 after the leg break (was 4.0: ~1.5x sim2sim peak; raise for walking)
+    torque_limit: 25.0  # Nm, 2026-11-19 after the leg break (model max 60); standing needs < 7
+
+  - joint: right_hip_yaw_joint
+    stand_kp: 40.0   # STAND only (policy gain stays in policy_spec.json)
+    stand_kd: 1.5
+    stand_pose: +0.0590  # joint rad, hardcoded stand (2026-11-19 sweep)
+    motor_id: 23
+    motor_model: RS02
+    can_interface: can_left
+    direction: 1.0  # PR #62 hand-turned 2026-11-18; confirm with bringup.py pulse
+    offset: 4.4465
+    lower: -0.7854
+    upper: 0.7854
+    max_velocity: 3.0  # rad/s, 2026-11-19 after the leg break (was 8.0: ~1.5x sim2sim peak; raise for walking)
+    torque_limit: 8.0  # Nm, 2026-11-19 after the leg break (model max 17); standing needs < 7
+
+  - joint: right_knee_pitch_joint
+    stand_kp: 180.0   # STAND only (policy gain stays in policy_spec.json)
+    stand_kd: 6.0
+    stand_pose: +0.4113  # joint rad, hardcoded stand (2026-11-19 sweep, move 1)
+    motor_id: 24
+    motor_model: RS03
+    can_interface: can_left
+    direction: -1.0  # FLIPPED 2026-11-19: PR #62 value bent the knee forward (bird-like), seen in squat + pulse
+    offset: 6.0878
+    lower: 0.0
+    upper: 1.0472
+    max_velocity: 3.0  # rad/s, 2026-11-19 after the leg break (was 12.0: ~1.5x sim2sim peak; raise for walking)
+    torque_limit: 25.0  # Nm, 2026-11-19 after the leg break (model max 60); standing needs < 7
+
+  - joint: right_ankle_pitch_joint
+    stand_kp: 150.0   # STAND only (policy gain stays in policy_spec.json)
+    stand_kd: 3.5
+    stand_pose: -0.3137  # joint rad, hardcoded stand (2026-11-19 sweep, move 1)
+    motor_id: 25
+    motor_model: RS06
+    can_interface: can_left
+    direction: 1.0  # FLIPPED 2026-11-19: PR #62 value put the toes ~23 deg DOWN in the stand pose
+    offset: 2.7831
+    lower: -1.5708
+    upper: 1.5708
+    max_velocity: 3.0  # rad/s, 2026-11-19 after the leg break (was 18.0: ~1.5x sim2sim peak; raise for walking)
+    torque_limit: 15.0  # Nm, 2026-11-19 after the leg break (model max 36); standing needs < 7

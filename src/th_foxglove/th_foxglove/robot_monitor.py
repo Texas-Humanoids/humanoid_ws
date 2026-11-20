@@ -2,7 +2,15 @@
 
 Inputs (per motor namespace <ns>, as robstride_motor_node or th_sim publish them):
   <ns>/motor/actual_velocity, actual_torque, temperature, bus_voltage, status
-  /policy_bridge/mode, /imu/data, /mujoco_sim/base_pose (sim only)
+  /policy_bridge/mode, /imu/data, /cmd_vel, /mujoco_sim/base_pose (sim only)
+
+Load: the motor nodes publish each of those at their feedback rate (100 Hz x 10 motors x 5
+topics, plus the IMU at 200 Hz: ~5000 messages/s). Taking every one in Python cost ~75% of a
+Jetson core (2026-11-19). So by default (sample_inputs: true) the high-rate inputs are
+*sampled*: their subscriptions live on a helper node that is never spun, with a depth-1 queue,
+so DDS keeps only the newest message and this node takes it when it needs it:
+  IMU at pose_rate, velocity/torque/command at 10 Hz, temperature/voltage/status at 1 Hz.
+If taking fails (an rclpy API change), it logs that once and falls back to callbacks.
 
 Outputs:
   /battery                       sensor_msgs/BatteryState  voltage (median of the motors'
@@ -16,6 +24,7 @@ Outputs:
   /robot/lean_left_deg                             side down), degrees
   /robot/current_left, _right,   std_msgs/Float64  estimated battery current (A) of each leg's
   /robot/current_total           motors and in total (see telemetry.battery_current)
+  /robot/cpu_percent             std_msgs/Float64  whole-computer CPU use (%), 1 Hz
   The /robot/* numbers are rounded so the dashboard shows them as they are read.
   /robot/health                  std_msgs/String  worst of the motors, IMU and battery: OK,
                                  WARNING, FAULT or NO DATA
@@ -38,7 +47,8 @@ import rclpy
 import rclpy.executors
 from rclpy.node import Node
 from rclpy.parameter import Parameter
-from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
+from rclpy.qos import (
+    DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data)
 from sensor_msgs.msg import BatteryState, Imu
 from std_msgs.msg import Float64, String
 from tf2_ros import StaticTransformBroadcaster, TransformBroadcaster
@@ -49,9 +59,13 @@ from th_foxglove import dashboard, telemetry
 # DiagnosticStatus levels as ints (rclpy's DiagnosticStatus.OK etc. are one-byte bytes objects).
 OK, WARN, ERROR, STALE = 0, 1, 2, 3
 
+# Only the newest message is kept for sampled inputs; best effort matches any publisher.
+LATEST = QoSProfile(depth=1, history=HistoryPolicy.KEEP_LAST,
+                    reliability=ReliabilityPolicy.BEST_EFFORT)
+
 
 class Reading:
-    """Last value of a topic and when it arrived."""
+    """Last value of a topic and when it arrived (or was sampled)."""
 
     def __init__(self):
         self.value = None
@@ -82,6 +96,20 @@ class Motor:
         self.status = Reading()
 
 
+def take_latest(subscription, limit=64):
+    """The newest message waiting on a subscription that is not spun, or None.
+
+    Same calls as rclpy's executor (Executor._take_subscription)."""
+    latest = None
+    with subscription.handle:
+        for _ in range(limit):
+            taken = subscription.handle.take_message(subscription.msg_type, subscription.raw)
+            if taken is None:
+                break
+            latest = taken[0]
+    return latest
+
+
 class RobotMonitor(Node):
 
     def __init__(self):
@@ -106,26 +134,32 @@ class RobotMonitor(Node):
         self.base_current = float(p('battery_base_current', 0.0).value)
         # Voltage for the current estimate when the motors report none (sim): nominal 3.6 V/cell.
         self.nominal_voltage = 3.6 * self.cells if self.cells > 0 else 36.0
+        pose_rate = float(p('pose_rate', 20.0).value)
+
+        # High-rate inputs: sampled (see the module docstring) or, with sample_inputs false,
+        # one callback per message as before.
+        self.sampled = []  # (subscription, setter, group, msg_type, topic, callback_qos)
+        self.sampler = (rclpy.create_node('robot_monitor_sampler')
+                        if bool(p('sample_inputs', True).value) else None)
 
         self.motors = [Motor(j, ns) for j, ns in zip(joints, namespaces)]
         for motor in self.motors:
-            for name, reading in (('actual_velocity', motor.velocity),
-                                  ('actual_torque', motor.torque),
-                                  ('temperature', motor.temperature),
-                                  ('bus_voltage', motor.bus_voltage)):
-                self.create_subscription(
-                    Float64, f'{motor.namespace}/motor/{name}',
-                    lambda msg, r=reading: r.set(msg.data), 10)
-            self.create_subscription(
-                DiagnosticStatus, f'{motor.namespace}/motor/status', motor.status.set, 10)
+            for name, reading, group in (('actual_velocity', motor.velocity, 'fast'),
+                                         ('actual_torque', motor.torque, 'fast'),
+                                         ('temperature', motor.temperature, 'slow'),
+                                         ('bus_voltage', motor.bus_voltage, 'slow')):
+                self.watch(Float64, f'{motor.namespace}/motor/{name}',
+                           lambda msg, r=reading: r.set(msg.data), group, 10)
+            self.watch(DiagnosticStatus, f'{motor.namespace}/motor/status', motor.status.set,
+                       'slow', 10)
 
         self.mode = Reading()
         self.imu = Reading()
         self.sim_pose = Reading()
         self.command = Reading()
-        self.create_subscription(
-            Twist, p('cmd_vel_topic', '/cmd_vel').value,
-            lambda msg: self.command.set((msg.linear.x, msg.linear.y, msg.angular.z)), 10)
+        self.watch(Twist, p('cmd_vel_topic', '/cmd_vel').value,
+                   lambda msg: self.command.set((msg.linear.x, msg.linear.y, msg.angular.z)),
+                   'views', 10)
         self.velocity = dashboard.VelocityEstimate(float(p('velocity_window', 1.4).value))
         self.smooth = dashboard.SmoothedPose(float(p('camera_smoothing', 0.8).value))
         self.measured_velocity = None
@@ -135,8 +169,8 @@ class RobotMonitor(Node):
             lambda msg: self.mode.set(msg.data),
             QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL,
                        reliability=ReliabilityPolicy.RELIABLE))
-        self.create_subscription(
-            Imu, p('imu_topic', '/imu/data').value, self.imu.set, qos_profile_sensor_data)
+        self.watch(Imu, p('imu_topic', '/imu/data').value, self.imu.set, 'imu',
+                   qos_profile_sensor_data)
         self.create_subscription(
             PoseStamped, p('base_pose_topic', '/mujoco_sim/base_pose').value,
             self.sim_pose.set, 10)
@@ -152,6 +186,8 @@ class RobotMonitor(Node):
         self.current_pubs = {
             side: self.create_publisher(Float64, f'/robot/current_{side}', 10)
             for side in ('left', 'right', 'total')}
+        self.cpu_pub = self.create_publisher(Float64, '/robot/cpu_percent', 10)
+        self.cpu_previous = None
         self.health_pub = self.create_publisher(String, '/robot/health', 10)
         self.diagnostics_pub = self.create_publisher(DiagnosticArray, '/diagnostics', 10)
         self.tf = TransformBroadcaster(self)
@@ -168,17 +204,50 @@ class RobotMonitor(Node):
         self.command_markers_pub = self.create_publisher(MarkerArray, '/dashboard/command', 10)
         self.lean_markers_pub = self.create_publisher(MarkerArray, '/dashboard/lean', 10)
         self.telemetry_pub = self.create_publisher(MarkerArray, '/dashboard/telemetry', 10)
-        self.create_timer(0.05, self.publish_views)
+        self.create_timer(0.1, self.publish_views)
         self.imu_count_at = (0, time.monotonic())
         self.imu_rate = 0.0
 
-        self.create_timer(1.0 / float(p('pose_rate', 50.0).value), self.publish_pose)
+        self.create_timer(1.0 / pose_rate, self.publish_pose)
         self.create_timer(0.1, self.publish_summary)
         self.create_timer(1.0, self.publish_diagnostics)
         self.get_logger().info(
-            f'Monitoring {len(self.motors)} motors; battery: '
+            f'Monitoring {len(self.motors)} motors '
+            f'({"sampled inputs" if self.sampler is not None else "every message"}); battery: '
             + (f'{self.cells} cells' if self.cells > 0 else
                'cell count unknown (set battery.cells in the robot yaml for a percentage)'))
+
+    # -- inputs -----------------------------------------------------------------------------
+
+    def watch(self, msg_type, topic, setter, group, callback_qos):
+        if self.sampler is not None:
+            sub = self.sampler.create_subscription(msg_type, topic, lambda _msg: None, LATEST)
+            self.sampled.append((sub, setter, group, msg_type, topic, callback_qos))
+        else:
+            self.create_subscription(msg_type, topic, setter, callback_qos)
+
+    def poll(self, group):
+        """Take the newest message of every sampled input in this group."""
+        if self.sampler is None:
+            return
+        try:
+            for sub, setter, g, *_ in self.sampled:
+                if g == group:
+                    msg = take_latest(sub)
+                    if msg is not None:
+                        setter(msg)
+        except Exception as error:  # noqa: BLE001  rclpy internals changed: use callbacks
+            self.get_logger().error(
+                f'Sampling inputs failed ({error!r}); falling back to a callback per message')
+            for sub, setter, _group, msg_type, topic, callback_qos in self.sampled:
+                self.sampler.destroy_subscription(sub)
+                self.create_subscription(msg_type, topic, setter, callback_qos)
+            self.sampled = []
+            self.sampler.destroy_node()
+            self.sampler = None
+
+    def sampled_imu(self):
+        return self.sampler is not None
 
     # -- pose -------------------------------------------------------------------------------
 
@@ -201,6 +270,7 @@ class RobotMonitor(Node):
         return (0.0, 0.0, self.base_height), (1.0, 0.0, 0.0, 0.0), 'none'
 
     def publish_pose(self):
+        self.poll('imu')
         position, q, source = self.base_pose()
         stamp = self.get_clock().now().to_msg()
         t = TransformStamped()
@@ -233,7 +303,8 @@ class RobotMonitor(Node):
             self.measured_velocity = None
 
     def publish_views(self):
-        """Top-down command and lean views, 20 Hz."""
+        """Top-down command and lean views, 10 Hz."""
+        self.poll('views')
         stamp = self.get_clock().now().to_msg()
         command = self.command.get(0.5, (0.0, 0.0, 0.0))  # the bridge treats stale as stop
         self.command_markers_pub.publish(dashboard.command_markers(
@@ -241,7 +312,7 @@ class RobotMonitor(Node):
         _, q, source = self.base_pose()
         lean = telemetry.lean(q) if source != 'none' else None
         if lean is not None:
-            self.lean_trail = (self.lean_trail + [lean])[-40:]  # last 2 s
+            self.lean_trail = (self.lean_trail + [lean])[-20:]  # last 2 s
         else:
             self.lean_trail = []
         self.lean_markers_pub.publish(dashboard.lean_markers(
@@ -253,6 +324,7 @@ class RobotMonitor(Node):
         return telemetry.pack_voltage([m.bus_voltage.get(3.0) for m in self.motors])
 
     def publish_summary(self):
+        self.poll('fast')
         volts = self.voltage()
         battery = BatteryState()
         battery.header.stamp = self.get_clock().now().to_msg()
@@ -298,7 +370,20 @@ class RobotMonitor(Node):
 
     # -- 1 Hz diagnostics -------------------------------------------------------------------
 
+    def publish_cpu(self):
+        try:
+            with open('/proc/stat') as f:
+                current = telemetry.cpu_times(f.read())
+        except (OSError, ValueError):
+            return
+        if self.cpu_previous is not None:
+            percent = telemetry.cpu_percent(self.cpu_previous, current)
+            self.cpu_pub.publish(Float64(data=round(percent, 1)))
+        self.cpu_previous = current
+
     def publish_diagnostics(self):
+        self.poll('slow')
+        self.publish_cpu()
         now = time.monotonic()
         count, since = self.imu_count_at
         self.imu_rate = (self.imu.count - count) / max(now - since, 1e-3)
@@ -335,17 +420,19 @@ class RobotMonitor(Node):
                       {'mode': mode})
 
     def imu_status(self):
-        values = {'rate_hz': f'{self.imu_rate:.0f}'}
+        # Sampled, the count is samples taken (at pose_rate), not the IMU's own rate.
+        sampled = self.sampled_imu()
+        values = {'rate_hz': 'sampled' if sampled else f'{self.imu_rate:.0f}'}
         if not self.imu.fresh(0.5):
             return status('robot: imu', STALE, 'no data', values)
         _, q, source = self.base_pose()
         values['tilt_deg'] = f'{math.degrees(telemetry.tilt(q)):.1f}'
         values['pose_source'] = source
-        return status('robot: imu', OK, f'{self.imu_rate:.0f} Hz', values)
+        return status('robot: imu', OK, 'OK' if sampled else f'{self.imu_rate:.0f} Hz', values)
 
     def motor_status(self, motor):
         name = f'motor: {motor.joint.removesuffix("_joint")}'
-        reported = motor.status.get(1.0)
+        reported = motor.status.get(1.5)
         if reported is not None:
             values = {kv.key: kv.value for kv in reported.values}
             level, message = level_of(reported), reported.message
@@ -397,6 +484,8 @@ def main(args=None):
     except (KeyboardInterrupt, rclpy.executors.ExternalShutdownException):
         pass
     finally:
+        if node.sampler is not None:
+            node.sampler.destroy_node()
         node.destroy_node()
         rclpy.try_shutdown()
 

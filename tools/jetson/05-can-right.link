@@ -8,3 +8,6 @@ Property=ID_SERIAL_SHORT=002D00165741570220393033
 
 [Link]
 Name=can_right
+# 1000, not the CAN default 10: five motor nodes share one adapter at 100 Hz each, and a
+# 10-frame queue overflows whenever USB pauses ("CAN write failed", 300+ ms feedback gaps).
+TransmitQueueLength=1000

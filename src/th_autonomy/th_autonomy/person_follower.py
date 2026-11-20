@@ -45,7 +45,7 @@ class PersonFollower(FollowerNode):
         self.seen = []
         self.followed = None
         self.located = None
-        self.release = False  # B pressed: drop the claim on the next frame (image thread)
+        self.release = False  # a stop event (BACK): drop the claim on the next frame (image thread)
 
     def on_enable(self):
         if self.claim.track_id is None:  # nobody claimed the robot: take the nearest
@@ -73,7 +73,7 @@ class PersonFollower(FollowerNode):
         if self.claim.track_id is None:
             return 'raise a hand to claim, Y to follow the nearest'
         who = 'claimed' if self.claim.claimed else 'locked'
-        return f'#{self.claim.track_id} {who}, Y to follow, B to release'
+        return f'#{self.claim.track_id} {who}, Y to follow, BACK to release'
 
     def shapes(self):
         out = []

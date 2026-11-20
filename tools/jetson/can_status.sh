@@ -34,6 +34,7 @@ for i in $ifaces; do
   port=$(basename "$usbdev")
   if [[ $bring_up == 1 ]]; then
     sudo ip link set "$i" down 2>/dev/null
+    sudo ip link set "$i" txqueuelen 1000 2>/dev/null   # see 05-can-*.link
     sudo ip link set "$i" up type can bitrate 1000000 || echo "  (could not bring $i up)"
   fi
   state=$(ip -details link show "$i" | sed -n 's/.*can state \([A-Z-]*\).*/\1/p')

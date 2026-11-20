@@ -1,5 +1,6 @@
 """Run the real policy_bridge executable over DDS with fake motors, IMU and policy."""
 
+import math
 import os
 import signal
 import subprocess
@@ -7,6 +8,7 @@ import tempfile
 import time
 import uuid
 
+from diagnostic_msgs.msg import DiagnosticStatus
 from geometry_msgs.msg import Quaternion, Twist, Vector3
 import pytest
 import rclpy
@@ -44,7 +46,13 @@ class Harness:
             JointState, topic('joint_states'), self.joint_states.append, 10)
         self.position = {}
         self.velocity = {}
+        self.status_pub = {}
+        # What each fake motor reports on <ns>/motor/status (robstride_motor_node's levels).
+        self.status = {motor: (DiagnosticStatus.OK, 'running') for motor in MOTORS}
+        self.send_status = True
         for motor in MOTORS:
+            self.status_pub[motor] = self.node.create_publisher(
+                DiagnosticStatus, topic(motor + '/motor/status'), 10)
             self.node.create_subscription(
                 Float64, topic(motor + '/motor/target_position'), self.commands[motor].append, 10)
             self.position[motor] = self.node.create_publisher(
@@ -73,6 +81,8 @@ class Harness:
             'button_topic': topic('buttons'),
             'observation_topic': topic('observation'),
             'joint_state_topic': topic('joint_states'),
+            # The freeze checks have their own tests; off elsewhere so fixed fake data is fine.
+            'freeze_timeout': 0.0,
             **parameters,
         }
         args = [os.environ['POLICY_BRIDGE_EXECUTABLE'], '--ros-args']
@@ -115,6 +125,9 @@ class Harness:
             position, velocity = self.motor_state[motor]
             self.position[motor].publish(Float64(data=position))
             self.velocity[motor].publish(Float64(data=velocity))
+            if self.send_status:
+                level, message = self.status[motor]
+                self.status_pub[motor].publish(DiagnosticStatus(level=level, message=message))
 
     def publish_imu(self):
         msg = Imu(orientation=Quaternion(w=1.0))
@@ -443,3 +456,103 @@ def test_gain_lists_must_match_the_motors():
         assert 'one entry per motor' in h.diagnostics()
     finally:
         h.close()
+
+
+def walking(h, targets):
+    """Arm (straight to WALK: the harness has no walk_event) while sending targets."""
+    def step():
+        h.publish_sensors()
+        h.publish_targets(targets() if callable(targets) else targets)
+    h.arm(step)
+    return step
+
+
+@pytest.mark.parametrize('level, message, expect', [
+    (DiagnosticStatus.ERROR, 'overtemperature', 'motor fault: overtemperature'),
+    (DiagnosticStatus.WARN, 'reset', 'motor not running: reset'),
+])
+def test_motor_fault_or_mode_drop_disarms_and_blocks_rearming(harness, level, message, expect):
+    h = harness()
+    step = walking(h, [0.2, 0.6, 5.0])
+    h.status['knee'] = (level, message)
+    h.wait(lambda: expect in h.diagnostics() and 'Disarmed (' in h.diagnostics(), step=step)
+    h.spin_for(0.3, step=step)  # let targets already in flight before the disarm arrive
+    for commands in h.commands.values():
+        commands.clear()
+    h.buttons.publish(String(data='START pressed'))
+    h.spin_for(0.5, step=step)
+    assert not any(h.commands.values())
+    assert 'Not arming' in h.diagnostics()
+
+
+def test_missing_motor_status_blocks_arming(harness):
+    h = harness()
+    h.send_status = False  # e.g. CAN bus down: the motor node stops publishing status
+
+    def step():
+        h.publish_sensors()
+        h.publish_targets([0.2, 0.6, 5.0])
+
+    h.spin_for(0.5, step=step)
+    h.buttons.publish(String(data='START pressed'))
+    h.spin_for(0.5, step=step)
+    assert not any(h.commands.values())
+    assert 'no motor status' in h.diagnostics()
+
+
+def test_motor_status_lost_while_walking_disarms(harness):
+    h = harness()
+    step = walking(h, [0.2, 0.6, 5.0])
+    h.send_status = False
+    h.wait(lambda: 'no motor status' in h.diagnostics() and 'Disarmed (' in h.diagnostics(),
+           step=step)
+
+
+def test_frozen_policy_output_disarms(harness):
+    h = harness(freeze_timeout=0.3)
+    step = walking(h, [0.2, 0.6, 5.0])  # the same targets every time
+    h.wait(lambda: 'policy output frozen' in h.diagnostics(), step=step)
+
+
+def test_frozen_feedback_disarms(harness):
+    h = harness(freeze_timeout=0.3)
+    t0 = time.monotonic()
+    # The hip target swings +-0.3 rad while its feedback never changes.
+    step = walking(h, lambda: [0.3 * math.sin(6 * (time.monotonic() - t0)), 0.6, 5.0])
+    h.wait(lambda: 'feedback frozen' in h.diagnostics(), step=step)
+    assert 'hip: feedback frozen' in h.diagnostics()
+
+
+def test_any_listed_disarm_button_disarms(harness):
+    h = harness(disarm_events=['B pressed'])
+    step = walking(h, [0.2, 0.6, 5.0])
+    h.buttons.publish(String(data='B pressed'))
+    h.wait(lambda: 'Disarmed (disarm button: B pressed)' in h.diagnostics(), step=step)
+    step = walking(h, [0.2, 0.6, 5.0])
+    h.buttons.publish(String(data='BACK pressed'))  # the default one still works
+    h.wait(lambda: 'Disarmed (disarm button: BACK pressed)' in h.diagnostics(), step=step)
+
+
+def test_joint_faster_than_its_limit_disarms(harness):
+    h = harness(max_joint_velocities=[0.0, 5.0], target_timeout=2.0)  # knee 5 rad/s, hip off
+    step = walking(h, [0.2, 0.6, 5.0])
+    h.spin_for(0.3, step=step)
+    assert 'Disarmed (' not in h.diagnostics()
+    h.motor_state['knee'] = (1.0, 8.0)  # 8 rad/s (motor frame; the knee is mounted reversed)
+    h.wait(lambda: 'knee: joint speed' in h.diagnostics() and 'Disarmed (' in h.diagnostics(),
+           step=step)
+
+
+def test_live_policy_and_moving_feedback_keep_walking(harness):
+    # A long target timeout: this checks the freeze checks for false trips, not harness lag.
+    h = harness(freeze_timeout=0.3, target_timeout=2.0)
+    t0 = time.monotonic()
+
+    def targets():
+        hip = 0.3 * math.sin(6 * (time.monotonic() - t0))
+        h.motor_state['hip'] = (hip, 0.0)  # feedback follows the target
+        return [hip, 0.6, 5.0]
+
+    step = walking(h, targets)
+    h.spin_for(1.2, step=step)
+    assert 'Disarmed (' not in h.diagnostics(), h.diagnostics()

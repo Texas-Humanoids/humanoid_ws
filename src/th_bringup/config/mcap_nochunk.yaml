@@ -1,0 +1,7 @@
+# rosbag2 mcap writer settings for bring-up recordings (robot.launch.py record:=true).
+# Unchunked + unbuffered: each message goes to the file as it arrives, so a power cut right after a
+# failed test loses well under a second instead of the whole open chunk (2026-11-19: twice the
+# moment of a policy failure was lost this way).
+noChunking: true
+noMessageIndex: false
+noSummary: false

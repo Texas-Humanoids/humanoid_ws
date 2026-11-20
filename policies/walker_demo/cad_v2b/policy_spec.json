@@ -1,0 +1,133 @@
+{
+ "_source": "C:\\Users\\karti\\mjlab_runs\\logs\\rsl_rl\\walker_demo_cad_v2b\\2026-11-19_06-45-58_cad_v2b\\2026-11-19_06-45-58_cad_v2b.onnx after model_2999.pt",
+ "robot": "walker_demo",
+ "limits_variant": "cad",
+ "joint_order": [
+  "left_hip_pitch_joint",
+  "left_hip_roll_joint",
+  "left_hip_yaw_joint",
+  "left_knee_pitch_joint",
+  "left_ankle_pitch_joint",
+  "right_hip_pitch_joint",
+  "right_hip_roll_joint",
+  "right_hip_yaw_joint",
+  "right_knee_pitch_joint",
+  "right_ankle_pitch_joint"
+ ],
+ "default_joint_pos": [
+  -0.2,
+  0.05,
+  0.0,
+  0.4,
+  -0.2,
+  -0.2,
+  -0.05,
+  0.0,
+  0.4,
+  -0.2
+ ],
+ "kp": [
+  80.0,
+  100.0,
+  30.0,
+  120.0,
+  100.0,
+  80.0,
+  100.0,
+  30.0,
+  120.0,
+  100.0
+ ],
+ "kd": [
+  4.0,
+  5.0,
+  1.0,
+  4.0,
+  2.5,
+  4.0,
+  5.0,
+  1.0,
+  4.0,
+  2.5
+ ],
+ "joint_limits": {
+  "left_hip_pitch_joint": [
+   -0.7854,
+   0.7854
+  ],
+  "left_hip_roll_joint": [
+   0.0,
+   0.7854
+  ],
+  "left_hip_yaw_joint": [
+   -0.7854,
+   0.7854
+  ],
+  "left_knee_pitch_joint": [
+   0.0,
+   1.0472
+  ],
+  "left_ankle_pitch_joint": [
+   -1.5708,
+   1.5708
+  ],
+  "right_hip_pitch_joint": [
+   -0.7854,
+   0.7854
+  ],
+  "right_hip_roll_joint": [
+   -0.7854,
+   0.0
+  ],
+  "right_hip_yaw_joint": [
+   -0.7854,
+   0.7854
+  ],
+  "right_knee_pitch_joint": [
+   0.0,
+   1.0472
+  ],
+  "right_ankle_pitch_joint": [
+   -1.5708,
+   1.5708
+  ]
+ },
+ "action_scale": 0.25,
+ "action_clip": 4.0,
+ "policy_dt": 0.02,
+ "gait_period": 0.72,
+ "gait_clock": "held",
+ "gait_stand_threshold": 0.1,
+ "targets_clipped_to_joint_limits_in_training": true,
+ "observations": [
+  {
+   "name": "base_ang_vel",
+   "scale": 1.0
+  },
+  {
+   "name": "projected_gravity",
+   "scale": 1.0
+  },
+  {
+   "name": "joint_pos_rel",
+   "scale": 1.0
+  },
+  {
+   "name": "joint_vel",
+   "scale": 1.0
+  },
+  {
+   "name": "last_action",
+   "scale": 1.0
+  },
+  {
+   "name": "velocity_command",
+   "scale": 1.0
+  },
+  {
+   "name": "gait_phase",
+   "scale": 1.0
+  }
+ ],
+ "observation_size": 41
+}

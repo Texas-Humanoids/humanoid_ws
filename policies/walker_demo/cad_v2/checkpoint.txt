@@ -1,0 +1,2 @@
+model_2999.pt
+logs/rsl_rl/walker_demo_cad_v2/2026-11-19_06-00-08_cad_v2

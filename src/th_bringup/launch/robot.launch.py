@@ -83,12 +83,35 @@ def motor_namespace(joint):
     return '/' + joint.removesuffix('_joint')
 
 
+def parse_caps(text, what):
+    """'hip_pitch=15,knee_pitch=20' -> {'hip_pitch': 15.0, 'knee_pitch': 20.0} (joint types)."""
+    caps = {}
+    for item in filter(None, (x.strip() for x in text.split(','))):
+        name, _, value = item.partition('=')
+        if not value or float(value) <= 0.0:
+            raise RuntimeError(f'{what}: expected type=value > 0, got {item!r}')
+        caps[name.strip()] = float(value)
+    return caps
+
+
+def apply_caps(motors, torque_caps, speed_caps):
+    """Tighten (never loosen) each motor's torque_limit (written into the drive) and max_velocity
+    (the bridge's speed trip) to the cap for its joint type (left_knee_pitch_joint -> knee_pitch)."""
+    for m in motors:
+        jt = m['joint'].removesuffix('_joint').removeprefix('left_').removeprefix('right_')
+        if jt in torque_caps:
+            m['torque_limit'] = min(float(m.get('torque_limit') or torque_caps[jt]), torque_caps[jt])
+        if jt in speed_caps:
+            m['max_velocity'] = min(float(m.get('max_velocity') or speed_caps[jt]), speed_caps[jt])
+
+
 def launch_pipeline(context):
     def arg(name):
         return LaunchConfiguration(name).perform(context)
 
     sim = arg('sim') == 'true'
     robot, motors = load_robot(arg('motors_config'), sim)
+    apply_caps(motors, parse_caps(arg('torque_caps'), 'torque_caps'), parse_caps(arg('speed_caps'), 'speed_caps'))
     spec_path = arg('policy_spec')
     bridge_extra = {}
     gains = {}
@@ -112,6 +135,9 @@ def launch_pipeline(context):
             'observation_terms': [t['name'] for t in spec['observations']],
             'observation_scales': [float(t.get('scale', 1.0)) for t in spec['observations']],
             'gait_period': float(spec.get('gait_period', 0.0)),
+            # 'held' (v2+): the clock stops under a stand command; v1 specs have no field = 'free'.
+            'gait_clock': str(spec.get('gait_clock', 'free')),
+            'gait_stand_threshold': float(spec.get('gait_stand_threshold', 0.1)),
             'rate': 1.0 / float(spec['policy_dt']),
         }
         gains = {
@@ -135,8 +161,36 @@ def launch_pipeline(context):
         bridge_extra['heading_hold_gain'] = float(heading_hold['gain'])
     if 'max_rate' in heading_hold:
         bridge_extra['heading_hold_max_rate'] = float(heading_hold['max_rate'])
+    # Bridge trips from the robot yaml (safety: max_tilt, joint_velocity_hold).
+    safety = robot.get('safety') or {}
+    for key in ('max_tilt', 'joint_velocity_hold'):
+        if key in safety:
+            bridge_extra[key] = float(safety[key])
+    # STAND-mode COM centering (th_policy_bridge stand_balance.hpp); absent or gain 0 = off.
+    stand_balance = robot.get('stand_balance') or {}
+    for key in ('gain', 'max_lean', 'filter_time', 'freeze_above', 'target_torque'):
+        if key in stand_balance:
+            bridge_extra[f'stand_balance_{key}'] = float(stand_balance[key])
+    if 'lean' in stand_balance:   # starting STAND lean (rad, + = back); the D-pad adjusts it live
+        bridge_extra['stand_lean'] = float(stand_balance['lean'])
+    for key in ('gain', 'max_lean', 'target_torque'):   # launch args override the yaml
+        if arg(f'stand_balance_{key}'):
+            bridge_extra[f'stand_balance_{key}'] = float(arg(f'stand_balance_{key}'))
+    if arg('stand_balance_arm_event'):   # e.g. 'Y pressed': the trim waits for it (TrimGate)
+        bridge_extra['stand_balance_arm_event'] = arg('stand_balance_arm_event')
+    # Scripted balanced squat in STAND (stand_balance.hpp SquatMotion): one cycle per button press.
+    if arg('stand_squat_event'):
+        bridge_extra['stand_squat_event'] = arg('stand_squat_event')
+        for key in ('depth', 'down_time', 'hold_time'):
+            if arg(f'stand_squat_{key}'):
+                bridge_extra[f'stand_squat_{key}'] = float(arg(f'stand_squat_{key}'))
     if arg('walk_event'):
         bridge_extra['walk_event'] = arg('walk_event')
+    # Every listed button disarms (BACK is the small View button on an Xbox pad; B is easier
+    # to hit in a hurry).
+    # B always disarms (the team's kill button), whatever disarm_buttons lists.
+    buttons = [b.strip() for b in arg('disarm_buttons').split(',') if b.strip()]
+    bridge_extra['disarm_events'] = [b + ' pressed' for b in dict.fromkeys(['B', *buttons])]
     if control_mode == 'mit' and motors:
         # The bridge switches each motor between its trained gains (WALK) and optional
         # stiffer stand_kp/stand_kd from the robot yaml (STAND).
@@ -157,6 +211,8 @@ def launch_pipeline(context):
         'offsets': [float(m['offset']) for m in motors],
         'lower_limits': [float(m['lower']) for m in motors],
         'upper_limits': [float(m['upper']) for m in motors],
+        # Optional per motor: max_velocity (rad/s) trips the bridge's joint speed check.
+        'max_joint_velocities': [float(m.get('max_velocity', 0.0)) for m in motors],
     } if motors else {}
 
     actions = [
@@ -174,6 +230,8 @@ def launch_pipeline(context):
                 'joint_target_topic': profile['joint_target_topic'],
                 'imu_topic': arg('imu_topic'),
                 'require_imu': arg('require_imu') == 'true',
+                # Real motor nodes publish motor/status (faults, run mode); th_sim's don't.
+                'require_motor_status': not sim,
                 'target_timeout': TARGET_TIMEOUT,
                 **bridge_extra,
                 **mapping,
@@ -197,6 +255,10 @@ def launch_pipeline(context):
             params['kp'], params['kd'] = gains[motor['joint']]
             params['damping_kd'] = float(motor.get('damping_kd', robot.get('damping_kd', 1.0)))
             params['feedback_rate'] = float(robot.get('feedback_rate', 100.0))
+            # Optional: diagnostic topics (torque/temperature/voltage/status) at this rate
+            # instead of every feedback tick; mode/fault changes are always sent at once.
+            if 'status_rate' in robot:
+                params['status_rate'] = float(robot['status_rate'])
             params['target_timeout'] = TARGET_TIMEOUT
             if 'torque_limit' in motor:
                 params['torque_limit'] = float(motor['torque_limit'])
@@ -206,12 +268,21 @@ def launch_pipeline(context):
             parameters=[params],
             output='screen'))
     if arg('record') == 'true':
-        actions.append(ExecuteProcess(
-            cmd=['ros2', 'bag', 'record', '--regex',
-                 '/policy/.*|/policy_bridge/.*|/cmd_vel|/gamepad/.*|' +
+        regex = arg('record_topics') or (
+            '/policy/.*|/policy_bridge/.*|/cmd_vel|/gamepad/.*|' +
                  arg('imu_topic') + '|/.*/motor/.*|/joint_states|/tf|/tf_static|'
                  '/robot_description|/battery|/diagnostics|/robot/.*|/dashboard/.*|'
-                 '/mujoco_sim/.*|/follower/(state|target|markers)|/rosout'],
+                 '/mujoco_sim/.*|/follower/(state|target|markers)|/rosout')
+        out = ['-o', arg('record_path')] if arg('record_path') else []
+        actions.append(ExecuteProcess(
+            # Small write cache (default 100 MB): a power cut mid-test then loses well under a
+            # second of data, not the last several seconds before the failure.
+            # Unchunked mcap (config/mcap_nochunk.yaml) + a 2 MB write cache: a power cut loses ~1 s.
+            # (No cache = a forced write per message; with the sync loop the NVMe stalled, 2026-11-19 21:00.)
+            cmd=['ros2', 'bag', 'record', '--regex', regex, '--max-cache-size', '2000000',
+                 '--storage', 'mcap', '--storage-config-file',
+                 PathJoinSubstitution([FindPackageShare('th_bringup'), 'config', 'mcap_nochunk.yaml'])
+                 .perform(context), *out],
             output='screen'))
     if arg('foxglove') == 'true':
         actions.append(IncludeLaunchDescription(
@@ -302,8 +373,52 @@ def generate_launch_description():
             'policy_spec', default_value='',
             description='Training export (policy_spec.json); overrides policy_config when set'),
         DeclareLaunchArgument(
+            'torque_caps', default_value='',
+            description='Per joint type torque caps in N m, written into each drive as its torque limit, '
+                        'e.g. hip_pitch=15,hip_roll=15,hip_yaw=6,knee_pitch=20,ankle_pitch=10. Only tightens the yaml'),
+        DeclareLaunchArgument(
+            'speed_caps', default_value='',
+            description='Per joint type speed trip in rad/s (the bridge disarms above it for 50 ms), '
+                        'e.g. hip_pitch=2,knee_pitch=2. Only tightens the yaml max_velocity'),
+        DeclareLaunchArgument(
+            'stand_squat_event', default_value='',
+            description="Button event for one scripted balanced squat in STAND (e.g. 'X pressed'); empty = off"),
+        DeclareLaunchArgument(
+            'stand_squat_depth', default_value='',
+            description='Squat pelvis drop in m (0 < depth <= 0.05; empty = bridge default 0.02, sim-tested)'),
+        DeclareLaunchArgument(
+            'stand_squat_down_time', default_value='',
+            description='Squat seconds down (and up), >= 1; empty = 3.0'),
+        DeclareLaunchArgument(
+            'stand_squat_hold_time', default_value='',
+            description='Squat seconds held at the bottom; empty = 1.0'),
+        DeclareLaunchArgument(
+            'stand_balance_arm_event', default_value='',
+            description="Button event that starts the STAND auto-lean (e.g. 'Y pressed'); empty = it "
+                        'runs right after the ramp. Press it once the robot stands on its own weight'),
+        DeclareLaunchArgument(
+            'stand_balance_max_lean', default_value='',
+            description='STAND trim correction limit (rad); empty = robot yaml stand_balance.max_lean'),
+        DeclareLaunchArgument(
+            'stand_balance_target_torque', default_value='',
+            description='Mean ankle torque the STAND trim holds (N m, + = weight ahead of the ankles); '
+                        'empty = robot yaml stand_balance.target_torque (absent = 0)'),
+        DeclareLaunchArgument(
+            'stand_balance_gain', default_value='',
+            description='STAND-mode COM centering gain (rad/s per N m, 0 = off); empty = the robot '
+                        'yaml stand_balance.gain (absent = off). 0.0015 is the sim-tested value'),
+        DeclareLaunchArgument(
             'walk_event', default_value='',
             description="Two-step arming: START stands, this event (e.g. 'A pressed') walks"),
+        DeclareLaunchArgument(
+            'disarm_buttons', default_value='BACK,B',
+            description='Comma-separated gamepad buttons that disarm (damp every motor); B always does'),
+        DeclareLaunchArgument(
+            'record_topics', default_value='',
+            description='Regex of topics to record with record:=true (empty = the full default set); e.g. tools/walker/bringup/ros.sh passes a lean set (policy, joints, IMU, motor torque/status)'),
+        DeclareLaunchArgument(
+            'record_path', default_value='',
+            description='Bag directory for record:=true (empty = ros2 bag default in the cwd)'),
         DeclareLaunchArgument(
             'record', default_value='false', choices=['true', 'false'],
             description='Record policy, IMU and motor topics with ros2 bag'),

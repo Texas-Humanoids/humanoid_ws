@@ -29,6 +29,13 @@ class MjpegCamera(Node):
         topic = self.declare_parameter('topic', '/camera/image/compressed').value
         self.frame_id = self.declare_parameter('frame_id', 'camera').value
         max_rate = float(self.declare_parameter('max_rate', 10.0).value)
+        # Degrees clockwise to turn frames upright (the walker's camera is mounted upside down: 180).
+        # 0 passes the JPEGs through untouched; anything else decodes, rotates and re-encodes, so
+        # every subscriber (dashboard, tag/person follower) gets the same upright image.
+        self.rotation = int(self.declare_parameter('rotation', 0).value)
+        if self.rotation not in (0, 90, 180, 270):
+            raise ValueError('rotation must be 0, 90, 180 or 270')
+        self.quality = int(self.declare_parameter('jpeg_quality', 85).value)
         self.period = 1.0 / max_rate if max_rate > 0 else 0.0
         self.publisher = self.create_publisher(CompressedImage, topic, qos_profile_sensor_data)
         self.running = True
@@ -68,8 +75,19 @@ class MjpegCamera(Node):
                 msg.header.stamp = self.get_clock().now().to_msg()
                 msg.header.frame_id = self.frame_id
                 msg.format = 'jpeg'
-                msg.data = jpeg
+                msg.data = self.rotate(jpeg) if self.rotation else jpeg
                 self.publisher.publish(msg)
+
+    def rotate(self, jpeg):
+        import cv2  # only needed when rotating
+        import numpy as np
+        codes = {90: cv2.ROTATE_90_CLOCKWISE, 180: cv2.ROTATE_180, 270: cv2.ROTATE_90_COUNTERCLOCKWISE}
+        image = cv2.imdecode(np.frombuffer(bytes(jpeg), np.uint8), cv2.IMREAD_COLOR)
+        if image is None:
+            return jpeg
+        ok, out = cv2.imencode('.jpg', cv2.rotate(image, codes[self.rotation]),
+                               [cv2.IMWRITE_JPEG_QUALITY, self.quality])
+        return out.tobytes() if ok else jpeg
 
     def destroy_node(self):
         self.running = False

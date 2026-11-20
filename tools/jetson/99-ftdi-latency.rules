@@ -1,0 +1,4 @@
+# FTDI USB-serial (VectorNav VN-100 IMU): flush every 1 ms instead of the 16 ms default.
+# At 16 ms the IMU reached the policy in ~55 ms bursts (fresh every ~60 ms): every policy stepped
+# within a second of taking over (2026-11-19). At 1 ms: every 5 ms, fresh each 20 ms policy step.
+ACTION=="add", SUBSYSTEM=="usb-serial", DRIVER=="ftdi_sio", ATTR{latency_timer}="1"

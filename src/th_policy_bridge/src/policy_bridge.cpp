@@ -9,6 +9,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "diagnostic_msgs/msg/diagnostic_status.hpp"
 #include "geometry_msgs/msg/twist.hpp"
 #include "geometry_msgs/msg/vector3.hpp"
 #include "rclcpp/rclcpp.hpp"
@@ -21,9 +22,12 @@
 #include "th_policy_bridge/heading_hold.hpp"
 #include "th_policy_bridge/joint_mapping.hpp"
 #include "th_policy_bridge/observation.hpp"
+#include "th_policy_bridge/safety.hpp"
+#include "th_policy_bridge/stand_balance.hpp"
 
 namespace tb = th_policy_bridge;
 using SteadyClock = std::chrono::steady_clock;
+using DiagnosticStatus = diagnostic_msgs::msg::DiagnosticStatus;
 
 namespace
 {
@@ -32,6 +36,11 @@ bool fresh(const SteadyClock::time_point & stamp, double timeout)
 {
   return stamp != SteadyClock::time_point{} &&
          std::chrono::duration<double>(SteadyClock::now() - stamp).count() <= timeout;
+}
+
+double seconds(const SteadyClock::time_point & t)
+{
+  return std::chrono::duration<double>(t.time_since_epoch()).count();
 }
 
 }  // namespace
@@ -81,6 +90,15 @@ public:
       declare_parameter<std::vector<std::string>>("observation_terms", std::vector<std::string>{}),
       declare_parameter<std::vector<double>>("observation_scales", std::vector<double>{}));
     gait_period_ = declare_parameter<double>("gait_period", 0.0);
+    // "free": phase = (t since WALK) mod period (v1 policies). "held": the clock stops under a
+    // stand command (HeldGaitClock); must match how the policy was trained (policy_spec.json).
+    const auto gait_clock = declare_parameter<std::string>("gait_clock", "free");
+    gait_stand_threshold_ = declare_parameter<double>("gait_stand_threshold", 0.1);
+    if (gait_clock != "free" && gait_clock != "held") {
+      throw std::invalid_argument("gait_clock is free or held");
+    }
+    held_gait_clock_ = gait_clock == "held";
+    policy_dt_ = 1.0 / rate;
     const auto imu_rotation = declare_parameter<std::vector<double>>(
       "imu_rotation", std::vector<double>{1.0, 0.0, 0.0, 0.0});
     const auto imu_world_frame = declare_parameter<std::string>("imu_world_frame", "enu");
@@ -115,8 +133,47 @@ public:
     armed_dropout_timeout_ = declare_parameter<double>("armed_dropout_timeout", 0.3);
     target_timeout_ = declare_parameter<double>("target_timeout", 0.2);
     require_imu_ = declare_parameter<bool>("require_imu", true);
+    // Every motor must report OK on <ns>/motor/status (robstride_motor_node: ERROR = a drive
+    // fault, WARN = the drive left run mode). No status for motor_status_timeout (no status
+    // frames: CAN bus down, motor unpowered or unplugged, motor node gone) also counts; while
+    // armed, like feedback, only after armed_dropout_timeout. Any of these blocks arming and
+    // disarms while armed. Off for sim, whose motors publish no status.
+    require_motor_status_ = declare_parameter<bool>("require_motor_status", true);
+    motor_status_timeout_ = declare_parameter<double>("motor_status_timeout", 0.25);
+    // While walking, two freezes disarm: a motor whose feedback stays bit-identical for
+    // freeze_timeout while its target moves by more than freeze_min_target_change (stale or
+    // stuck feedback), and policy targets that stay bit-identical for freeze_timeout (a stuck
+    // policy; the gait clock makes a live policy's output change every step). 0 disables both.
+    freeze_timeout_ = declare_parameter<double>("freeze_timeout", 0.5);
+    freeze_min_target_change_ = declare_parameter<double>("freeze_min_target_change", 0.1);
+    // A joint faster than its limit for joint_velocity_hold disarms (STAND and WALK): a policy
+    // out of its depth (e.g. thrashing in the air) or a runaway joint. Per motor in
+    // max_joint_velocities (motor_joints order, rad/s); 0 there = max_joint_velocity; 0 = off.
+    const auto max_velocities = declare_parameter<std::vector<double>>(
+      "max_joint_velocities", std::vector<double>{});
+    const double max_velocity = declare_parameter<double>("max_joint_velocity", 0.0);
+    joint_velocity_hold_ = declare_parameter<double>("joint_velocity_hold", 0.05);
+    if (!(max_velocity >= 0.0) || !(joint_velocity_hold_ >= 0.0)) {
+      throw std::invalid_argument("max_joint_velocity >= 0, joint_velocity_hold >= 0");
+    }
     arm_event_ = declare_parameter<std::string>("arm_event", "START pressed");
     disarm_event_ = declare_parameter<std::string>("disarm_event", "BACK pressed");
+    // More buttons that disarm, on top of disarm_event (e.g. "B pressed": easier to find than
+    // the small View/BACK button in a hurry).
+    disarm_events_ = declare_parameter<std::vector<std::string>>(
+      "disarm_events", std::vector<std::string>{});
+    if (std::find(disarm_events_.begin(), disarm_events_.end(), disarm_event_) ==
+      disarm_events_.end())
+    {
+      disarm_events_.push_back(disarm_event_);
+    }
+    if (!(motor_status_timeout_ > 0.0) || !(freeze_timeout_ >= 0.0) ||
+      !(freeze_min_target_change_ > 0.0))
+    {
+      throw std::invalid_argument(
+              "motor_status_timeout > 0, freeze_timeout >= 0 (0 disables), "
+              "freeze_min_target_change > 0");
+    }
 
     if (joint_names_.empty() || joint_names_.size() != defaults_.size() ||
       !std::all_of(defaults_.begin(), defaults_.end(), [](double v) {return std::isfinite(v);}) ||
@@ -155,6 +212,7 @@ public:
                 "Motor joints and namespaces must be unique; namespaces start with '/'");
       }
       Motor motor;
+      motor.name = namespaces[m];
       motor.joint = it->second;
       motor.calibration = {directions[m], offsets[m], lowers[m], uppers[m]};
       tb::validate(motor.calibration, motor_joints[m]);
@@ -166,20 +224,51 @@ public:
         namespaces[m] + "/motor/actual_position", 10,
         [this, m](const std_msgs::msg::Float64 & msg) {
           if (std::isfinite(msg.data)) {
-            motors_[m].position = tb::motor_to_joint(motors_[m].calibration, msg.data);
-            motors_[m].stamp = SteadyClock::now();
+            auto & motor = motors_[m];
+            motor.position = tb::motor_to_joint(motor.calibration, msg.data);
+            motor.stamp = SteadyClock::now();
+            motor.freeze.update(msg.data, seconds(motor.stamp));
           }
+        });
+      motor.status_sub = create_subscription<DiagnosticStatus>(
+        namespaces[m] + "/motor/status", 10,
+        [this, m](const DiagnosticStatus & msg) {
+          motors_[m].status_level = msg.level;
+          motors_[m].status_message = msg.message;
+          motors_[m].status_stamp = SteadyClock::now();
         });
       motor.velocity_sub = create_subscription<std_msgs::msg::Float64>(
         namespaces[m] + "/motor/actual_velocity", 10,
         [this, m](const std_msgs::msg::Float64 & msg) {
           if (std::isfinite(msg.data)) {
-            motors_[m].velocity = motors_[m].calibration.direction * msg.data;
+            auto & motor = motors_[m];
+            motor.velocity = motor.calibration.direction * msg.data;
+            motor.speed.update(motor.velocity, motor.max_velocity, seconds(SteadyClock::now()));
           }
         });
       motors_.push_back(std::move(motor));
     }
     previous_actions_.assign(joint_names_.size(), 0.0);
+    if (!max_velocities.empty() && max_velocities.size() != n) {
+      throw std::invalid_argument("max_joint_velocities needs one entry per motor (or none)");
+    }
+    std::string speed_limits;
+    for (size_t m = 0; m < n; ++m) {
+      const double v = max_velocities.empty() ? 0.0 : max_velocities[m];
+      if (!std::isfinite(v) || v < 0.0) {
+        throw std::invalid_argument("max_joint_velocities must be finite and >= 0");
+      }
+      motors_[m].max_velocity = v > 0.0 ? v : max_velocity;
+      if (motors_[m].max_velocity > 0.0) {
+        speed_limits += (speed_limits.empty() ? "" : ", ") + motor_joints[m] + " " +
+          std::to_string(motors_[m].max_velocity).substr(0, 4);
+      }
+    }
+    if (!speed_limits.empty()) {
+      RCLCPP_INFO(
+        get_logger(), "Joint speed trip (rad/s, %.0f ms hold): %s", joint_velocity_hold_ * 1000.0,
+        speed_limits.c_str());
+    }
 
     manage_gains_ = !policy_kp.empty();
     if (manage_gains_) {
@@ -207,6 +296,9 @@ public:
 
     if (!require_imu_) {
       RCLCPP_WARN(get_logger(), "require_imu is false: assuming upright and not rotating");
+    }
+    if (!require_motor_status_) {
+      RCLCPP_WARN(get_logger(), "require_motor_status is false: motor faults will NOT disarm");
     }
     std::vector<bool> has_motor(joint_names_.size(), false);
     for (const auto & motor : motors_) {has_motor[motor.joint] = true;}
@@ -241,6 +333,142 @@ public:
     // and the dashboard. Joints without a motor read as the default pose, as in the policy.
     joint_state_pub_ = create_publisher<sensor_msgs::msg::JointState>(
       declare_parameter<std::string>("joint_state_topic", "/joint_states"), 10);
+    // STAND-mode COM centering (stand_balance.hpp); stand_balance_gain 0 = off (the default).
+    stand_trim_.gain = declare_parameter<double>("stand_balance_gain", 0.0);
+    stand_trim_.max_lean = declare_parameter<double>("stand_balance_max_lean", 0.06);
+    stand_trim_.filter_time = declare_parameter<double>("stand_balance_filter_time", 1.0);
+    stand_trim_.freeze_above = declare_parameter<double>("stand_balance_freeze_above", 2.5);
+    // Mean ankle torque the trim holds (N m, + = weight ahead of the ankles); 0 = COM over the
+    // ankles. The real robot balanced at +1.4..+2.0 N m (auto-lean: 1.5).
+    stand_trim_.target_torque = declare_parameter<double>("stand_balance_target_torque", 0.0);
+    if (!std::isfinite(stand_trim_.target_torque) || std::abs(stand_trim_.target_torque) > 5.0) {
+      throw std::invalid_argument("stand_balance_target_torque must be within +-5 N m");
+    }
+    const auto balance_joints = declare_parameter<std::vector<std::string>>(
+      "stand_balance_joints",
+      std::vector<std::string>{"left_ankle_pitch_joint", "right_ankle_pitch_joint"});
+    if (!(stand_trim_.gain >= 0.0) || !(stand_trim_.max_lean >= 0.0) ||
+      !(stand_trim_.max_lean <= 0.15) || !(stand_trim_.filter_time > 0.0) ||
+      !(stand_trim_.freeze_above > 0.0))
+    {
+      throw std::invalid_argument(
+              "stand_balance: gain >= 0, 0 <= max_lean <= 0.15 rad, filter_time > 0, freeze_above > 0");
+    }
+    if (balance_joints.size() != 2) {
+      throw std::invalid_argument("stand_balance_joints is [left ankle, right ankle]");
+    }
+    std::string missing_ankle;
+    for (size_t side = 0; side < 2; ++side) {
+      bool found = false;
+      for (size_t m = 0; m < motors_.size(); ++m) {
+        if (joint_names_[motors_[m].joint] == balance_joints[side]) {
+          balance_motor_[side] = m;
+          found = true;
+        }
+      }
+      if (!found) {missing_ankle = balance_joints[side];}
+    }
+    have_ankles_ = missing_ankle.empty();
+    // Operator lean in STAND (D-pad, stand_balance.hpp ManualLean), starting at stand_lean.
+    manual_lean_.target = declare_parameter<double>("stand_lean", 0.0);
+    manual_lean_.step = declare_parameter<double>("stand_lean_step", 0.01);
+    manual_lean_.max = declare_parameter<double>("stand_lean_max", 0.25);
+    manual_lean_.rate = declare_parameter<double>("stand_lean_rate", 0.05);
+    lean_forward_event_ = declare_parameter<std::string>("stand_lean_forward_event", "DPAD_UP pressed");
+    lean_back_event_ = declare_parameter<std::string>("stand_lean_back_event", "DPAD_DOWN pressed");
+    if (!(manual_lean_.step > 0.0 && manual_lean_.step <= 0.05) ||
+      !(manual_lean_.max >= 0.0 && manual_lean_.max <= 0.3) || !(manual_lean_.rate > 0.0) ||
+      !(std::abs(manual_lean_.target) <= manual_lean_.max))
+    {
+      throw std::invalid_argument(
+              "stand_lean: 0 < step <= 0.05, 0 <= max <= 0.3, rate > 0, |stand_lean| <= max (rad)");
+    }
+    lean_pub_ = create_publisher<std_msgs::msg::Float64>("~/stand_lean", 10);
+    if (have_ankles_) {
+      RCLCPP_INFO(
+        get_logger(), "STAND lean: %+.3f rad (+ = back); '%s' leans forward, '%s' back, %.3f rad "
+        "per press, max %.2f", manual_lean_.target, lean_forward_event_.c_str(),
+        lean_back_event_.c_str(), manual_lean_.step, manual_lean_.max);
+    }
+    if (stand_trim_.gain > 0.0) {
+      if (!manage_gains_) {
+        throw std::invalid_argument("stand_balance needs the stand gains (control_mode mit + policy_spec)");
+      }
+      if (!have_ankles_) {
+        throw std::invalid_argument("stand_balance joint without a motor: " + missing_ankle);
+      }
+      RCLCPP_INFO(
+        get_logger(), "STAND balance on: gain %.4f rad/s/Nm, max lean %.3f rad, filter %.1f s, "
+        "frozen above %.1f Nm, holds mean ankle torque %+.2f Nm", stand_trim_.gain, stand_trim_.max_lean,
+        stand_trim_.filter_time, stand_trim_.freeze_above, stand_trim_.target_torque);
+    }
+    stand_balance_ = stand_trim_.gain > 0.0;
+    // Optional: hold the trim until this button event (stand_balance.hpp TrimGate), e.g. "Y pressed"
+    // once the robot stands on its own weight. Empty = trim runs right after the ramp.
+    trim_arm_event_ = declare_parameter<std::string>("stand_balance_arm_event", "");
+    trim_gate_.enabled = !trim_arm_event_.empty();
+    if (trim_gate_.enabled &&
+      (trim_arm_event_ == arm_event_ || trim_arm_event_ == walk_event_ ||
+      trim_arm_event_ == lean_forward_event_ || trim_arm_event_ == lean_back_event_ ||
+      std::find(disarm_events_.begin(), disarm_events_.end(), trim_arm_event_) !=
+      disarm_events_.end()))
+    {
+      throw std::invalid_argument(
+              "stand_balance_arm_event '" + trim_arm_event_ +
+              "' is already the arm, walk, disarm or D-pad lean event");
+    }
+    if (trim_gate_.enabled && stand_balance_) {
+      RCLCPP_INFO(
+        get_logger(), "STAND balance gated: it starts only on '%s' (press once the robot carries "
+        "its own weight)", trim_arm_event_.c_str());
+    }
+    // Scripted balanced squat in STAND (stand_balance.hpp SquatMotion), one cycle per press of
+    // stand_squat_event (e.g. "X pressed"). Empty = off.
+    squat_event_ = declare_parameter<std::string>("stand_squat_event", "");
+    squat_.depth = declare_parameter<double>("stand_squat_depth", 0.02);
+    squat_.down_time = declare_parameter<double>("stand_squat_down_time", 3.0);
+    squat_.hold_time = declare_parameter<double>("stand_squat_hold_time", 1.0);
+    if (!squat_event_.empty()) {
+      if (!(squat_.depth > 0.0 && squat_.depth <= 0.05) || !(squat_.down_time >= 1.0) ||
+        !(squat_.hold_time >= 0.0 && squat_.hold_time <= 30.0))
+      {
+        throw std::invalid_argument(
+                "stand_squat: 0 < depth <= 0.05 m, down_time >= 1 s, 0 <= hold_time <= 30 s");
+      }
+      if (squat_event_ == arm_event_ || squat_event_ == walk_event_ ||
+        squat_event_ == lean_forward_event_ || squat_event_ == lean_back_event_ ||
+        squat_event_ == trim_arm_event_ ||
+        std::find(disarm_events_.begin(), disarm_events_.end(), squat_event_) !=
+        disarm_events_.end())
+      {
+        throw std::invalid_argument(
+                "stand_squat_event '" + squat_event_ +
+                "' is already the arm, walk, disarm, D-pad lean or auto-lean event");
+      }
+      static const char * kJoints[2][3] = {
+        {"left_hip_pitch_joint", "left_knee_pitch_joint", "left_ankle_pitch_joint"},
+        {"right_hip_pitch_joint", "right_knee_pitch_joint", "right_ankle_pitch_joint"}};
+      for (size_t side = 0; side < 2; ++side) {
+        for (size_t k = 0; k < 3; ++k) {
+          bool found = false;
+          for (size_t m = 0; m < motors_.size(); ++m) {
+            if (joint_names_[motors_[m].joint] == kJoints[side][k]) {
+              squat_motor_[side][k] = m;
+              found = true;
+            }
+          }
+          if (!found) {
+            throw std::invalid_argument(
+                    std::string("stand_squat needs a motor on ") + kJoints[side][k]);
+          }
+        }
+      }
+      RCLCPP_INFO(
+        get_logger(), "STAND squat on '%s': %.1f cm, %.1f s down, %.1f s hold, %.1f s up",
+        squat_event_.c_str(), squat_.depth * 100.0, squat_.down_time, squat_.hold_time,
+        squat_.down_time);
+    }
+
     timer_ = create_wall_timer(
       std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::duration<double>(1.0 /
       rate)),
@@ -248,8 +476,12 @@ public:
 
     RCLCPP_INFO(
       get_logger(), "Bridging %zu motors at %.0f Hz, observation size %zu. Disarmed; '%s' %s, "
-      "'%s' disarms.", motors_.size(), rate, layout_.size(joint_names_.size()),
-      arm_event_.c_str(), walk_event_.empty() ? "arms" : "stands", disarm_event_.c_str());
+      "%s disarms.", motors_.size(), rate, layout_.size(joint_names_.size()),
+      arm_event_.c_str(), walk_event_.empty() ? "arms" : "stands", [this]() {
+        std::string names;
+        for (const auto & e : disarm_events_) {names += (names.empty() ? "'" : " or '") + e + "'";}
+        return names;
+      }().c_str());
     if (!walk_event_.empty()) {
       RCLCPP_INFO(get_logger(), "'%s' starts walking once standing.", walk_event_.c_str());
     }
@@ -267,17 +499,26 @@ private:
 
   struct Motor
   {
+    std::string name;  // its namespace, for messages
     size_t joint{};  // index into joint_names_
     tb::JointMotor calibration{};
     rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr command;
     rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr position_sub;
     rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr velocity_sub;
+    rclcpp::Subscription<DiagnosticStatus>::SharedPtr status_sub;
     rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr gains;
     std::array<double, 2> policy_gains{};
     std::array<double, 2> stand_gains{};
     double position{};  // joint space
     double velocity{};
     SteadyClock::time_point stamp{};
+    uint8_t status_level{DiagnosticStatus::STALE};  // until the first status arrives
+    std::string status_message;
+    SteadyClock::time_point status_stamp{};
+    double last_target{};  // joint space, as sent (after clamping)
+    double max_velocity{};  // rad/s, 0 = no speed trip
+    tb::OverLimitWatch speed;
+    tb::FreezeWatch freeze;  // raw feedback vs. the targets sent
   };
 
   void on_imu(const sensor_msgs::msg::Imu & msg)
@@ -323,6 +564,7 @@ private:
     if (mode_ != Mode::kWalk) {
       return;
     }
+    target_freeze_.update(msg.position, seconds(target_time_));
     send_to_motors(msg.position);
   }
 
@@ -331,7 +573,7 @@ private:
   // jumping to the limit. The ramp only moves toward the default pose, never further out.
   void send_to_motors(const std::vector<double> & joint_targets, bool from_ramp_start = false)
   {
-    for (const auto & motor : motors_) {
+    for (auto & motor : motors_) {
       tb::JointMotor calibration = motor.calibration;
       if (from_ramp_start) {
         calibration.lower = std::min(calibration.lower, ramp_start_[motor.joint]);
@@ -340,6 +582,9 @@ private:
       std_msgs::msg::Float64 command;
       command.data = tb::joint_to_motor(calibration, joint_targets[motor.joint]);
       motor.command->publish(command);
+      // The clamped target, so a joint held at its limit is not mistaken for frozen feedback.
+      motor.last_target = tb::motor_to_joint(calibration, command.data);
+      motor.freeze.observe_ref(motor.last_target);
     }
   }
 
@@ -379,9 +624,10 @@ private:
     mode_pub_->publish(msg);
   }
 
-  // Why the robot is not ready to run, or nullptr when it is. While armed, gaps up to
-  // armed_dropout_timeout are tolerated (and reported through *gap).
-  const char * not_ready(bool armed = false, const char ** gap = nullptr) const
+  // Why the robot is not ready to run, or empty when it is. While armed, gaps up to
+  // armed_dropout_timeout in feedback, IMU or motor status are tolerated (and reported
+  // through *gap); a motor fault or a drive out of run mode fails at once.
+  std::string not_ready(bool armed = false, const char ** gap = nullptr) const
   {
     const auto check = [&](const SteadyClock::time_point & stamp, double strict,
       const char * stale, const char * late) -> const char * {
@@ -401,26 +647,42 @@ private:
         return r;
       }
     }
-    if (require_imu_) {
-      return check(imu_time_, imu_timeout_, "IMU data is stale", "IMU data is late");
+    if (require_motor_status_) {
+      for (const auto & motor : motors_) {
+        if (check(motor.status_stamp, motor_status_timeout_, "stale", "motor status is late")) {
+          return motor.name + ": no motor status (CAN bus down, motor off or unplugged, or "
+                 "motor node stopped)";
+        }
+        if (motor.status_level == DiagnosticStatus::ERROR) {
+          return motor.name + ": motor fault: " + motor.status_message;
+        }
+        if (motor.status_level != DiagnosticStatus::OK) {
+          return motor.name + ": motor not running: " + motor.status_message;
+        }
+      }
     }
-    return nullptr;
+    if (require_imu_) {
+      if (const char * r = check(imu_time_, imu_timeout_, "IMU data is stale", "IMU data is late")) {
+        return r;
+      }
+    }
+    return {};
   }
 
   void on_button(const std::string & event)
   {
-    if (event == disarm_event_) {
-      disarm("disarm button");
+    if (std::find(disarm_events_.begin(), disarm_events_.end(), event) != disarm_events_.end()) {
+      disarm("disarm button: " + event);
     } else if (event == arm_event_ && mode_ == Mode::kDisarmed) {
-      const char * reason = not_ready();
-      if (reason == nullptr && walk_event_.empty() && !fresh(target_time_, target_timeout_)) {
+      std::string reason = not_ready();
+      if (reason.empty() && walk_event_.empty() && !fresh(target_time_, target_timeout_)) {
         reason = "the policy is not publishing targets";
       }
-      if (reason == nullptr && tilted()) {
+      if (reason.empty() && tilted()) {
         reason = "the base is tilted past max_tilt";
       }
-      if (reason != nullptr) {
-        RCLCPP_WARN(get_logger(), "Not arming: %s", reason);
+      if (!reason.empty()) {
+        RCLCPP_WARN(get_logger(), "Not arming: %s", reason.c_str());
         return;
       }
       if (walk_event_.empty()) {
@@ -428,12 +690,62 @@ private:
       } else {
         ramp_start_ = measured_joints();
         ramp_time_ = SteadyClock::now();
+        stand_trim_.reset();
+        trim_gate_.reset();
+        squat_.stop();
+        manual_lean_.snap();
         previous_actions_.assign(joint_names_.size(), 0.0);
         set_mode(Mode::kStand);
         RCLCPP_WARN(
           get_logger(), "STAND: ramping %zu motors to the default pose over %.1f s; '%s' walks",
           motors_.size(), stand_ramp_time_, walk_event_.c_str());
+        if (stand_balance_ && trim_gate_.enabled) {
+          RCLCPP_WARN(
+            get_logger(), "STAND balance waiting for '%s' (press when it stands on its own weight)",
+            trim_arm_event_.c_str());
+        }
       }
+    } else if (trim_gate_.enabled && event == trim_arm_event_) {
+      if (mode_ != Mode::kStand || !stand_balance_) {
+        RCLCPP_INFO(
+          get_logger(), "Ignoring '%s': the STAND auto-lean only arms while standing%s",
+          event.c_str(), stand_balance_ ? "" : " (and stand_balance_gain is 0)");
+      } else if (!ramp_done()) {
+        RCLCPP_WARN(get_logger(), "STAND balance not armed: still ramping to the stand pose");
+      } else if (trim_gate_.armed) {
+        RCLCPP_INFO(get_logger(), "STAND balance already armed");
+      } else {
+        stand_trim_.reset();
+        trim_gate_.arm();
+        RCLCPP_WARN(
+          get_logger(), "STAND balance ARMED: holding mean ankle torque %+.2f Nm, max %.3f rad",
+          stand_trim_.target_torque, stand_trim_.max_lean);
+      }
+    } else if (!squat_event_.empty() && event == squat_event_) {
+      if (mode_ != Mode::kStand) {
+        RCLCPP_INFO(get_logger(), "Ignoring '%s': the squat only runs in STAND", event.c_str());
+      } else if (!ramp_done()) {
+        RCLCPP_WARN(get_logger(), "SQUAT not started: still ramping to the stand pose");
+      } else if (squat_.running) {
+        RCLCPP_INFO(get_logger(), "SQUAT already running; ignoring '%s'", event.c_str());
+      } else {
+        squat_.begin(seconds(SteadyClock::now()));
+        RCLCPP_WARN(
+          get_logger(), "SQUAT start depth %.1f cm (%.1f s down, %.1f s hold, %.1f s up)",
+          squat_.depth * 100.0, squat_.down_time, squat_.hold_time, squat_.down_time);
+      }
+    } else if ((event == lean_forward_event_ || event == lean_back_event_) && mode_ == Mode::kStand) {
+      if (!have_ankles_) {
+        RCLCPP_WARN(get_logger(), "STAND lean needs both ankle motors; ignoring %s", event.c_str());
+        return;
+      }
+      manual_lean_.nudge(event == lean_forward_event_ ? -1 : +1);
+      RCLCPP_WARN(
+        get_logger(), "STAND lean -> %+.3f rad (%.1f deg %s). To start here next time: "
+        "stand_balance: lean: %+.3f in the robot yaml", manual_lean_.target,
+        std::abs(manual_lean_.target) * 180.0 / M_PI,
+        manual_lean_.target < 0.0 ? "forward" : manual_lean_.target > 0.0 ? "back" : "level",
+        manual_lean_.target);
     } else if (!walk_event_.empty() && event == walk_event_ && mode_ == Mode::kStand) {
       if (!ramp_done()) {
         RCLCPP_WARN(get_logger(), "Not walking yet: still ramping to the default pose");
@@ -448,6 +760,10 @@ private:
   void start_walking()
   {
     walk_time_ = SteadyClock::now();
+    gait_clock_.reset();
+    squat_.stop();
+    target_freeze_.reset();
+    for (auto & motor : motors_) {motor.freeze.reset();}
     heading_hold_.reset();
     last_hold_time_ = walk_time_;
     set_mode(Mode::kWalk);
@@ -467,13 +783,53 @@ private:
            std::acos(std::clamp(-gravity_[2], -1.0, 1.0)) > max_tilt_;
   }
 
-  void disarm(const char * reason)
+  void disarm(const std::string & reason)
   {
+    trim_gate_.reset();
+    squat_.stop();
     if (mode_ != Mode::kDisarmed) {
       set_mode(Mode::kDisarmed);
       RCLCPP_WARN(
-        get_logger(), "Disarmed (%s); targets stop (CSP motors hold, MIT motors damp)", reason);
+        get_logger(), "Disarmed (%s); targets stop (CSP motors hold, MIT motors damp)",
+        reason.c_str());
     }
+  }
+
+  // While armed: a joint over its speed limit for joint_velocity_hold. Returns the reason, or empty.
+  std::string overspeed() const
+  {
+    if (mode_ == Mode::kDisarmed) {
+      return {};
+    }
+    const double t = seconds(SteadyClock::now());
+    for (const auto & motor : motors_) {
+      if (motor.speed.tripped(t, joint_velocity_hold_)) {
+        return motor.name + ": joint speed " + std::to_string(motor.speed.peak).substr(0, 5) +
+               " rad/s over its " + std::to_string(motor.max_velocity).substr(0, 4) + " rad/s limit";
+      }
+    }
+    return {};
+  }
+
+  // While walking: stuck policy output, or motor feedback that stopped changing while its
+  // target moved. Returns the reason, or empty.
+  std::string frozen() const
+  {
+    if (mode_ != Mode::kWalk || freeze_timeout_ <= 0.0) {
+      return {};
+    }
+    const double t = seconds(SteadyClock::now());
+    if (target_freeze_.frozen(t, freeze_timeout_)) {
+      return "policy output frozen (identical targets for " + std::to_string(freeze_timeout_) +
+             " s)";
+    }
+    for (const auto & motor : motors_) {
+      if (motor.freeze.frozen(t, freeze_timeout_, freeze_min_target_change_)) {
+        return motor.name + ": feedback frozen (position unchanged for " +
+               std::to_string(freeze_timeout_) + " s while its target moved)";
+      }
+    }
+    return {};
   }
 
   void publish_joint_states()
@@ -504,10 +860,16 @@ private:
     if (mode_ != Mode::kDisarmed && tilted()) {
       disarm("base tilt exceeded max_tilt (fall)");
     }
-    const char * gap = nullptr;
-    if (const char * reason = not_ready(mode_ != Mode::kDisarmed, &gap)) {
+    if (const std::string reason = frozen(); !reason.empty()) {
       disarm(reason);
-      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000, "Waiting: %s", reason);
+    }
+    if (const std::string reason = overspeed(); !reason.empty()) {
+      disarm(reason);
+    }
+    const char * gap = nullptr;
+    if (const std::string reason = not_ready(mode_ != Mode::kDisarmed, &gap); !reason.empty()) {
+      disarm(reason);
+      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000, "Waiting: %s", reason.c_str());
       return;
     }
 
@@ -537,14 +899,67 @@ private:
     in.previous_actions = previous_actions_;
     in.gait_phase = 0.0;
     if (mode_ == Mode::kWalk && gait_period_ > 0.0) {
-      const double t = std::chrono::duration<double>(SteadyClock::now() - walk_time_).count();
-      in.gait_phase = std::fmod(t / gait_period_, 1.0);
+      if (held_gait_clock_) {
+        in.gait_phase = gait_clock_.step(in.command, policy_dt_, gait_period_, gait_stand_threshold_);
+      } else {
+        const double t = std::chrono::duration<double>(SteadyClock::now() - walk_time_).count();
+        in.gait_phase = std::fmod(t / gait_period_, 1.0);
+      }
     }
 
     if (mode_ == Mode::kStand) {
       const double alpha =
         std::chrono::duration<double>(SteadyClock::now() - ramp_time_).count() / stand_ramp_time_;
-      send_to_motors(tb::interpolate(ramp_start_, defaults_, alpha), true);
+      std::vector<double> pose = defaults_;
+      double total_lean = 0.0;
+      if (have_ankles_) {
+        total_lean = manual_lean_.update(policy_dt_);
+        for (const size_t m : balance_motor_) {pose[motors_[m].joint] += total_lean;}
+      }
+      if (squat_.running) {
+        // Scripted squat (only ever started after the ramp): hip/knee/ankle pitch offsets per leg.
+        const auto off = squat_.offsets(seconds(SteadyClock::now()));
+        for (size_t side = 0; side < 2; ++side) {
+          for (size_t k = 0; k < 3; ++k) {pose[motors_[squat_motor_[side][k]].joint] += off[k];}
+        }
+        if (!squat_.running) {RCLCPP_WARN(get_logger(), "SQUAT done");}
+      }
+      std::vector<double> targets = tb::interpolate(ramp_start_, pose, alpha);
+      const bool trim_on = stand_balance_ && trim_gate_.active();
+      if (trim_on && alpha >= 1.0) {
+        // The torque each ankle drive is applying now: kp (target - q) - kd v, on the stand gains.
+        std::array<double, 2> tau{};
+        for (size_t side = 0; side < 2; ++side) {
+          const auto & motor = motors_[balance_motor_[side]];
+          tau[side] = motor.stand_gains[0] * (motor.last_target - motor.position) -
+            motor.stand_gains[1] * motor.velocity;
+        }
+        const double lean = stand_trim_.update(tau[0], tau[1], policy_dt_);
+        for (const size_t m : balance_motor_) {targets[motors_[m].joint] += lean;}
+        total_lean += lean;
+        RCLCPP_INFO_THROTTLE(
+          get_logger(), *get_clock(), 2000,
+          "STAND balance: lean %+.3f rad (+ = back), ankle torque %+.1f / %+.1f Nm (filtered %+.2f)",
+          lean, tau[0], tau[1], stand_trim_.filtered);
+      }
+      if (have_ankles_ && !trim_on && alpha >= 1.0 && manage_gains_) {
+        // Balance readout for the D-pad lean (and while the gated trim waits for its button).
+        std::array<double, 2> tau{};
+        for (size_t side = 0; side < 2; ++side) {
+          const auto & motor = motors_[balance_motor_[side]];
+          tau[side] = motor.stand_gains[0] * (motor.last_target - motor.position) -
+            motor.stand_gains[1] * motor.velocity;
+        }
+        RCLCPP_INFO_THROTTLE(
+          get_logger(), *get_clock(), 2000,
+          "STAND lean %+.3f rad (+ = back), ankle torque %+.1f / %+.1f Nm (+ = weight ahead of the "
+          "ankles, - = behind)%s", total_lean, tau[0], tau[1],
+          stand_balance_ ? "; auto-lean waiting for its button" : "");
+      }
+      send_to_motors(targets, true);
+      std_msgs::msg::Float64 lean_msg;
+      lean_msg.data = total_lean;
+      lean_pub_->publish(lean_msg);
     }
     geometry_msgs::msg::Vector3 g;
     g.x = in.gravity[0];
@@ -572,14 +987,38 @@ private:
   double armed_dropout_timeout_{};
   double target_timeout_{};
   bool require_imu_{true};
+  bool require_motor_status_{true};
+  double motor_status_timeout_{};
+  double freeze_timeout_{};
+  double freeze_min_target_change_{};
+  tb::VectorFreezeWatch target_freeze_;
+  double joint_velocity_hold_{};
   std::string arm_event_;
   std::string disarm_event_;
+  std::vector<std::string> disarm_events_;
   std::string walk_event_;
   Mode mode_{Mode::kDisarmed};
   bool manage_gains_{false};
+  bool stand_balance_{false};
+  tb::CenteringTrim stand_trim_;
+  tb::TrimGate trim_gate_;
+  std::string trim_arm_event_;
+  tb::SquatMotion squat_;
+  std::string squat_event_;
+  std::array<std::array<size_t, 3>, 2> squat_motor_{};  // [left, right][hip, knee, ankle] motor index
+  std::array<size_t, 2> balance_motor_{};
+  bool have_ankles_{false};
+  tb::ManualLean manual_lean_;
+  std::string lean_forward_event_;
+  std::string lean_back_event_;
+  rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr lean_pub_;
   int gain_refresh_ticks_{0};
   tb::ObservationLayout layout_;
   double gait_period_{};
+  bool held_gait_clock_{false};
+  double gait_stand_threshold_{0.1};
+  double policy_dt_{0.02};
+  tb::HeldGaitClock gait_clock_;
   tb::Quaternion imu_to_base_{1.0, 0.0, 0.0, 0.0};
   bool world_z_down_{false};
   double max_tilt_{};

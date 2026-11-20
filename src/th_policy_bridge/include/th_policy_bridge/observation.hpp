@@ -229,4 +229,29 @@ inline std::vector<double> interpolate(
   return out;
 }
 
+// The "held" gait clock (policy_spec.json gait_clock: "held"), one step() per policy step.
+// Training (th_training tasks/walker_demo_velocity/mdp.py) uses the same recurrence: the phase
+// is 0 on the first step after WALK starts and whenever the command is a stand command
+// (|v_xy| + |w_z| <= threshold), and otherwise advances by dt / period. So a standing robot sees a
+// still clock instead of a stride rhythm, and every walk starts from phase 0.
+struct HeldGaitClock
+{
+  double phase{0.0};
+  bool started{false};
+
+  void reset()
+  {
+    phase = 0.0;
+    started = false;
+  }
+
+  double step(const std::array<double, 3> & command, double dt, double period, double threshold)
+  {
+    const bool moving = std::hypot(command[0], command[1]) + std::abs(command[2]) > threshold;
+    phase = (started && moving) ? std::fmod(phase + dt / period, 1.0) : 0.0;
+    started = true;
+    return phase;
+  }
+};
+
 }  // namespace th_policy_bridge

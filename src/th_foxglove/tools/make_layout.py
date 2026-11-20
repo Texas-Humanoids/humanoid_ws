@@ -1,6 +1,16 @@
-"""Generate the presentation layout: python3 tools/make_layout.py layouts/walker_v2.json."""
+"""Generate the presentation layout: python3 tools/make_layout.py layouts/walker_v2.json.
+
+  --stand <robot yaml>   add a Stand tab first (stand-only demo: lean, ankle/knee torque in the
+                         joint frame using the yaml's motor directions, last gamepad button), e.g.
+  python3 tools/make_layout.py layouts/walker_demo.json --stand ../th_bringup/config/walker_demo_robot.yaml
+"""
 
 import json, sys
+STAND_YAML = None
+if '--stand' in sys.argv:
+    i = sys.argv.index('--stand')
+    STAND_YAML = sys.argv[i + 1]
+    del sys.argv[i:i + 2]
 FRAMES = ['world', 'base_link', 'base_footprint', 'base_smooth', 'dashboard', 'imu_link',
           'follow_camera'] + [
     f'{s}_{l}_link' for s in ('left', 'right')
@@ -136,9 +146,9 @@ for k, (short, title) in enumerate(names.items()):
     l, r = k, k + 5
     joint_plots.append(plot(f'Plot!{short}', f'{title} (deg)', [
         series(f'/joint_states.position[{l}].@degrees', 'L measured', BLUE, 2),
-        series(f'/policy/joint_targets.position[{l}].@degrees', 'L target', BLUE_T, 1),
+        series(f'/policy/joint_targets.position[{l}].@degrees', 'L policy target (WALK)', BLUE_T, 1),
         series(f'/joint_states.position[{r}].@degrees', 'R measured', ORANGE, 2),
-        series(f'/policy/joint_targets.position[{r}].@degrees', 'R target', ORANGE_T, 1)], window=8, legend='floating'))
+        series(f'/policy/joint_targets.position[{r}].@degrees', 'R policy target (WALK)', ORANGE_T, 1)], window=8, legend='floating'))
 cfg['StateTransitions!mode'] = {
     'foxglovePanelTitle': 'State history', 'isSynced': True,
     'paths': [{'value': '/policy_bridge/mode.data', 'timestampMethod': 'receiveTime',
@@ -163,7 +173,7 @@ plot('Plot!torque', 'Knee and ankle torque (Nm)', [
     series('/left_ankle_pitch/motor/actual_torque.data', 'L ankle', CYAN, 1.5),
     series('/right_ankle_pitch/motor/actual_torque.data', 'R ankle', YELLOW, 1.5)], window=20)
 plot('Plot!computer', 'Computer CPU (%)', [
-    series('/foxglove_bridge/sysinfo.total_cpu_percent', 'CPU', BLUE, 1.5)],
+    series('/robot/cpu_percent.data', 'CPU', BLUE, 1.5)],
     ymin=0, ymax=100, window=120, legend='none')
 plot('Plot!temperature', 'Hottest motor (°C; warning at 70)', [
     series('/robot/max_motor_temperature.data', 'motor', ORANGE, 2)],
@@ -201,7 +211,48 @@ follow = split('row', 'Image!follow',
                      split('column', 'Plot!follow_target', 'Plot!follow_cmd', 50), 14),
                68)
 
-cfg['Tab!main'] = {'activeTabIdx': int(sys.argv[2]) if len(sys.argv) > 2 else 0, 'tabs': [
+# -- Stand (optional): the stand-only demo ---------------------------------------------------
+tabs = []
+if STAND_YAML:
+    import yaml
+    directions = {m['joint']: float(m['direction']) for m in yaml.safe_load(open(STAND_YAML))['motors']}
+
+    def joint_torque(side, joint, label, color):
+        # The motor topic is in the motor's frame; the bridge's joint frame is direction x that.
+        name = f'{side}_{joint}'
+        sign = '' if directions.get(f'{name}_joint', 1.0) > 0 else '.@negative'
+        return series(f'/{name}/motor/actual_torque.data{sign}', label, color, 2)
+
+    cfg['3D!stand_robot'] = json.loads(json.dumps(cfg['3D!robot']))
+    indicator('Indicator!stand_mode', 'State', '/policy_bridge/mode.data',
+              [('WALK', GREEN_BG), ('STAND', YELLOW_BG), ('DISARMED', RED_BG)])
+    indicator('Indicator!stand_health', 'Health', '/robot/health.data',
+              [('OK', GREEN_BG), ('WARNING', YELLOW_BG), ('FAULT', RED_BG)])
+    plot('Plot!stand_lean', 'Lean (deg): body forward / left, commanded ankle lean', [
+        series('/robot/lean_forward_deg.data', 'body forward (+ nose down)', BLUE, 2),
+        series('/robot/lean_left_deg.data', 'body left (+ left down)', GREEN, 1.5),
+        series('/policy_bridge/stand_lean.data.@degrees', 'commanded lean (+ back)', YELLOW, 2)],
+        window=30)
+    plot('Plot!stand_ankle', 'Ankle torque (Nm, + = weight ahead of the ankles)', [
+        joint_torque('left', 'ankle_pitch', 'L ankle', BLUE),
+        joint_torque('right', 'ankle_pitch', 'R ankle', ORANGE)], window=30)
+    plot('Plot!stand_knee', 'Knee torque (Nm)', [
+        joint_torque('left', 'knee_pitch', 'L knee', BLUE),
+        joint_torque('right', 'knee_pitch', 'R knee', ORANGE)], window=30)
+    cfg['RawMessages!buttons'] = {
+        'foxglovePanelTitle': 'Last gamepad button', 'topicPath': '/gamepad/button_event.data',
+        'diffEnabled': False, 'diffMethod': 'custom', 'diffTopicPath': '',
+        'showFullMessageForDiff': False, 'fontSize': 20}
+    stand = split('row', '3D!stand_robot',
+                  split('column',
+                        split('row', 'Indicator!stand_mode',
+                              split('row', 'Indicator!stand_health', 'RawMessages!buttons', 50), 33),
+                        split('column', 'Plot!stand_lean',
+                              split('column', 'Plot!stand_ankle', 'Plot!stand_knee', 50), 34), 14),
+                  42)
+    tabs.append({'title': 'Stand', 'layout': stand})
+
+cfg['Tab!main'] = {'activeTabIdx': int(sys.argv[2]) if len(sys.argv) > 2 else 0, 'tabs': tabs + [
     {'title': 'Overview', 'layout': overview},
     {'title': 'Joints', 'layout': joints},
     {'title': 'System', 'layout': system},

@@ -8,8 +8,8 @@
 A subclass only finds the target in each frame (`find_target`) and outlines
 what it found (`shapes`). This class publishes /cmd_vel only while all of these hold:
   - following is enabled: `toggle_event` (Y) toggles it, but only turns it on
-    while the bridge is in WALK (`require_walk`); any `stop_events` (B, BACK)
-    and the bridge leaving WALK turn it off, so STAND is never sent commands;
+    while the bridge is in WALK (`require_walk`); any `stop_events` (BACK)
+    and the bridge leaving WALK (B disarms it) turn it off, so STAND is never sent commands;
   - the operator is not holding the gamepad's enable button (LB). While it is
     held the gamepad drives, and following resumes from standstill on release.
 When it stops publishing it sends one zero command first (like the gamepad),
@@ -85,7 +85,7 @@ class FollowerNode(Node):
         button_topic = p('button_topic', '/gamepad/button_event').value
         joy_topic = p('joy_topic', '/joy').value
         self.toggle_event = p('toggle_event', 'Y pressed').value
-        self.stop_events = set(p('stop_events', ['B pressed', 'BACK pressed']).value)
+        self.stop_events = set(p('stop_events', ['BACK pressed']).value)
         self.override_button = int(p('override_button', 9).value)
         self.joy_timeout = float(p('joy_timeout', 0.5).value)
         self.require_walk = bool(p('require_walk', True).value)

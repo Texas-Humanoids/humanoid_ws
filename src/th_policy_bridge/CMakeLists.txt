@@ -7,6 +7,7 @@ endif()
 
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(diagnostic_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
@@ -14,7 +15,7 @@ find_package(std_msgs REQUIRED)
 add_executable(policy_bridge src/policy_bridge.cpp)
 target_compile_features(policy_bridge PRIVATE cxx_std_17)
 target_include_directories(policy_bridge PRIVATE include)
-ament_target_dependencies(policy_bridge rclcpp geometry_msgs sensor_msgs std_msgs)
+ament_target_dependencies(policy_bridge rclcpp diagnostic_msgs geometry_msgs sensor_msgs std_msgs)
 
 install(TARGETS policy_bridge DESTINATION lib/${PROJECT_NAME})
 
