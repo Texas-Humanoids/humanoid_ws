@@ -125,6 +125,11 @@ colcon build --packages-up-to th_autonomy && source install/setup.bash
 ros2 launch th_autonomy follow.launch.py target:=person
 ```
 
+On the demo walker, where the dashboard runs on its own (`ros.sh dashboard`), one
+command does this: `tools/walker/bringup/ros.sh follow` (`person` by default, or
+`tag`; `stop`, `status`, `log`). It builds `th_autonomy` if needed and runs the
+follower in a `humanoid-ros:gpu` container next to the dashboard.
+
 Both containers share the host network, so they see each other's topics. The
 follower runs only on CPU cores 4 and 5 (`cpu_cores`), so it can't delay the
 control loop on the others.

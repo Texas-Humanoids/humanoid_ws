@@ -31,6 +31,11 @@ robot, state, health, body lean vs the commanded ankle lean, ankle and knee torq
 frame (+ ankle = weight ahead of the ankles) and the last gamepad button. Start it while the
 robot is disarmed: a new ROS process joining the network can briefly stall the Jetson.
 
+For detections over the camera, also run `tools/walker/bringup/ros.sh follow` (`... follow
+stop|status|log`, or `follow tag` for AprilTags): the person follower on the GPU in its own
+container, reading this dashboard's camera relay. It only drives the robot after **Y** in WALK
+([th_autonomy](../th_autonomy/README.md)).
+
 robot_monitor samples its 100-200 Hz inputs (motor feedback, IMU) instead of taking every
 message (that took ~75% of a core); foxglove_bridge only offers the layouts' topics
 (`TOPIC_WHITELIST` in the launch file; `tools/check_layout_topics.py` checks a layout against it).

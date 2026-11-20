@@ -18,6 +18,8 @@
 #   tools/walker/bringup/ros.sh health             # one-screen status from the logs (starts no ROS process)
 #   tools/walker/bringup/ros.sh dashboard [stop|status|log]  # Foxglove dashboard (ws://<jetson>:8765) in its own
 #                                                  # container, capped at 1 CPU core; import th_foxglove/layouts/walker_demo.json
+#   tools/walker/bringup/ros.sh follow [person|tag|stop|status|log]  # person (default) or AprilTag follower on
+#                                                  # the GPU: detections over the dashboard camera; Y follows in WALK
 set -uo pipefail
 cd "$(dirname "$0")/../../.." || exit 1          # repo root (~/humanoid_ws, /ws in the container)
 DC="docker compose --profile robot"
@@ -198,6 +200,44 @@ case "${1:-}" in
     sleep 8
     docker logs $NAME 2>&1 | grep -a -E "listening|Monitoring|ERROR|Error|not installed" | head -6
     echo "dashboard: ws://$(hostname -I | awk '{print $1}'):8765 (or the Jetson's Tailscale IP); stop: ros.sh dashboard stop" ;;
+  follow)
+    # th_autonomy follower in its own GPU container (humanoid-ros:gpu, the compose "perception"
+    # image), beside the motor stack and the dashboard. It reads the dashboard's camera relay
+    # (/camera/image/compressed, already turned upright, so the follower's camera.rotation stays 0)
+    # and publishes /follower/annotations and /follower/markers, which the dashboard's Camera and
+    # 3D panels draw. Detection always runs; it only sends /cmd_vel after Y while the bridge is in
+    # WALK (th_autonomy/README.md). The person model must be in models/ (tools/fetch_person_model.py);
+    # its TensorRT engine is cached there after the first start (~10 min).
+    NAME=walker_follow
+    IMAGE=${FOLLOW_IMAGE:-humanoid-ros:gpu}
+    case "${2:-person}" in
+      stop) docker stop $NAME >/dev/null 2>&1 && echo "follower stopped" || echo "follower not running"; exit 0 ;;
+      status) docker ps --filter name=$NAME --format '{{.Names}} {{.Status}}' | grep . || { echo "follower not running"; exit 0; }
+              docker stats --no-stream --format 'cpu {{.CPUPerc}} mem {{.MemUsage}}' $NAME 2>/dev/null
+              docker logs --tail 200 $NAME 2>&1 | grep -a -E "Ready|running on|state" | tail -3; exit 0 ;;
+      log) docker logs --tail ${3:-40} $NAME 2>&1 | grep -a -v -E "^(=+|)$|NVIDIA|CUDA|[Ll]icense"; exit 0 ;;
+      person|tag) TARGET=${2:-person} ;;
+      *) echo "ros.sh follow [person|tag|stop|status|log]"; exit 1 ;;
+    esac
+    docker ps --format '{{.Names}}' | grep -qx $NAME && { echo "follower already running (ros.sh follow stop)"; exit 0; }
+    docker ps --format '{{.Names}}' | grep -qx walker_dashboard ||
+      echo "note: the dashboard (ros.sh dashboard) is not running, so there is no camera relay to read yet"
+    docker image inspect $IMAGE >/dev/null 2>&1 || { echo "no image $IMAGE: $DC build perception (or set FOLLOW_IMAGE)"; exit 1; }
+    if [ "$TARGET" = person ] && ! ls models/rtmo-l.onnx >/dev/null 2>&1; then
+      echo "no models/rtmo-l.onnx: python3 tools/fetch_person_model.py"; exit 1
+    fi
+    # Same DDS setup as the dashboard (--ipc host + the host's /dev/shm), or a new participant can
+    # stall the motor nodes. --rm, so a rebuilt install/ is picked up on the next start.
+    GPU="docker run --rm --runtime nvidia -e NVIDIA_VISIBLE_DEVICES=all -e NVIDIA_DRIVER_CAPABILITIES=compute,utility \
+      --network host --ipc host -v /dev/shm:/dev/shm -v $PWD:/ws"
+    [ -f install/th_autonomy/share/th_autonomy/package.xml ] || {
+      echo "building th_autonomy"; $GPU $IMAGE bash -lc "source /opt/ros/jazzy/setup.bash && cd /ws && \
+        colcon build --packages-select th_autonomy 2>&1 | tail -2" | grep -a -v -E "^(=+|)$|NVIDIA|CUDA|[Ll]icense"; }
+    $GPU -d --name $NAME $IMAGE bash -lc "$ROS && exec ros2 run th_autonomy ${TARGET}_follower \
+      --ros-args --params-file src/th_autonomy/config/${TARGET}_follower.yaml" >/dev/null || exit 1
+    sleep 15
+    docker logs $NAME 2>&1 | grep -a -E "Ready|running on|ERROR|Error|Traceback" | head -4
+    echo "$TARGET follower running: detections show on the dashboard's Camera panel; stop: ros.sh follow stop" ;;
   *)
     sed -n 2,18p "$0"; exit 1 ;;
 esac
