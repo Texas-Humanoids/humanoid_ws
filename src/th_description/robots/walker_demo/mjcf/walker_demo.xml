@@ -7,6 +7,7 @@
   </default>
   <asset>
     <mesh name="base_link" file="base_link.stl"/>
+    <mesh name="base_logo" file="base_logo.stl"/>
     <mesh name="left_hip_pitch_link" file="left_hip_pitch_link.stl"/>
     <mesh name="right_hip_pitch_link" file="right_hip_pitch_link.stl"/>
     <mesh name="left_hip_roll_link" file="left_hip_roll_link.stl"/>
@@ -23,6 +24,7 @@
       <inertial pos="0.00180766 -0.000367335 0.125401" mass="6.94071" fullinertia="1.113124e-01 8.852711e-02 3.704462e-02 -1.346730e-04 -1.281225e-03 -2.921152e-04"/>
       <freejoint name="floating_base_joint"/>
       <geom type="mesh" mesh="base_link" class="visual"/>
+      <geom type="mesh" mesh="base_logo" class="visual" rgba="0.749 0.341 0.0 1"/>
       <geom name="base_link_collision" type="box" size="0.0615 0.251265 0.220854" pos="1.14652e-06 -4.39765e-07 0.163354" class="collision"/>
       <site name="imu" pos="0 0 0" size="0.01"/>
       <body name="left_hip_pitch_link" pos="0 0.04 0">

@@ -5,6 +5,7 @@
     <inertial><origin xyz="0.00180766 -0.000367335 0.125401" rpy="0 0 0"/><mass value="6.94071"/><inertia ixx="1.113124e-01" ixy="-1.346730e-04" ixz="-1.281225e-03" iyy="8.852711e-02" iyz="-2.921152e-04" izz="3.704462e-02"/></inertial>
     <visual><geometry><mesh filename="package://walker_demo/meshes/base_link.stl"/></geometry></visual>
     <visual name="longhorn_horns"><geometry><mesh filename="package://walker_demo/meshes/base_horns.stl"/></geometry><material name="burnt_orange"><color rgba="0.749 0.341 0.0 1.0"/></material></visual>
+    <visual name="longhorn_logo"><geometry><mesh filename="package://walker_demo/meshes/base_logo.stl"/></geometry><material name="burnt_orange"><color rgba="0.749 0.341 0.0 1.0"/></material></visual>
     <collision name="base_link_box"><origin xyz="1.14652e-06 -4.39765e-07 0.163354" rpy="0 0 0"/><geometry><box size="0.123 0.50253 0.441708"/></geometry></collision>
   </link>
   <link name="left_hip_pitch_link">
