@@ -431,6 +431,7 @@
       "synchronize": false,
       "imageMode": {
         "imageTopic": "/camera/image/compressed",
+        "rotation": 180,
         "annotations": {
           "/follower/annotations": {
             "visible": true
@@ -1077,6 +1078,7 @@
       "synchronize": false,
       "imageMode": {
         "imageTopic": "/camera/image/compressed",
+        "rotation": 180,
         "annotations": {
           "/follower/annotations": {
             "visible": true

@@ -95,6 +95,12 @@ def top_down(pid, title, topic, distance):
 
 top_down('3D!command', 'Command · blue (vx, vy, wz) / green (vx, vy)', '/dashboard/command', 1.75)
 top_down('3D!lean', 'Lean · tilt / (forward, left) °', '/dashboard/lean', 1.4)
+# The walker's camera is mounted upside down. Foxglove turns the image (and the follower's
+# annotations, which are in the camera's own pixels) for display, so the JPEGs pass through
+# the relay untouched; the follower turns its own copy upright (camera.rotation: 180).
+CAMERA_ROTATION = 180
+
+
 def image(pid, title, topic, annotations=()):
     cfg[pid] = {
         'foxglovePanelTitle': title,
@@ -103,7 +109,7 @@ def image(pid, title, topic, annotations=()):
                         'thetaOffset': 45, 'fovy': 45, 'near': 0.5, 'far': 5000},
         'followMode': 'follow-pose', 'scene': {}, 'transforms': {}, 'topics': {}, 'layers': {},
         'publish': PUBLISH, 'synchronize': False,
-        'imageMode': {'imageTopic': topic,
+        'imageMode': {'imageTopic': topic, 'rotation': CAMERA_ROTATION,
                       'annotations': {a: {'visible': True} for a in annotations}},
     }
     return pid
