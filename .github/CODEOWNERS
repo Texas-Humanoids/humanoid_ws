@@ -1,4 +1,4 @@
 # Every pull request into main needs an approval from one of these people
 # before it can be merged. Anyone can review, but only these approvals count.
-# For now this is the org owners.
-* @Arav-R @gordonworldlee @Jazhuss456 @kazzhi
+# For now this is the org owners plus Kartik.
+* @Arav-R @gordonworldlee @Jazhuss456 @kazzhi @kartikr27
